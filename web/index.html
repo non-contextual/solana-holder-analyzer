@@ -1106,7 +1106,17 @@ async function saveSnapshot() {
   const note = prompt('Optional label (leave blank to skip):', '')
   if (note === null) return   // cancelled
 
-  const body = { mint: tokenInfo.mint, token: tokenInfo, wallets: allWallets, analyzedAt: Date.now(), note: note || undefined }
+  const body = {
+    mint:       tokenInfo.mint,
+    token:      tokenInfo,
+    wallets:    allWallets,
+    analyzedAt: Date.now(),
+    note:       note || undefined,
+    // Persist the co-holds / co-trades dropdowns so loading a snapshot
+    // restores the same filter UI we had at analysis time.
+    sharedTokens,
+    sharedTradedTokens,
+  }
   const res  = await fetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (res.ok) {
     const btn = document.getElementById('btnSaveSnap')
@@ -1181,6 +1191,10 @@ async function loadSnapshot(mint, filename) {
   allWallets   = snap.wallets
   filteredRows = snap.wallets
   tokenInfo    = snap.token
+  // Older snapshots predate these fields → fall back to []. The dropdown
+  // still works, it's just empty until you re-analyze.
+  sharedTokens       = snap.sharedTokens       ?? []
+  sharedTradedTokens = snap.sharedTradedTokens ?? []
   currentSnapshotFile = filename
 
   // Show banner
@@ -1197,6 +1211,9 @@ async function loadSnapshot(mint, filename) {
   document.getElementById('filterBar').classList.add('visible')
   document.getElementById('footerBar').classList.add('visible')
   document.getElementById('btnSaveSnap').style.display = 'none'
+  // Rebuild dropdowns from the restored sharedTokens / sharedTradedTokens —
+  // the SSE complete-event path that normally calls these doesn't run for snapshots.
+  buildCoDropdown(); buildCoTradesDropdown()
   applyFilters()
 
   // Close history panel

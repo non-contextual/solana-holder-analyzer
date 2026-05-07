@@ -4,7 +4,7 @@
 
 import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join, basename } from 'path'
-import type { WalletProfile, TokenInfo } from './types'
+import type { WalletProfile, TokenInfo, SharedToken } from './types'
 
 // Prevent path traversal: mint must be base58 (alphanumeric, no slashes/dots)
 function validateMint(mint: string): void {
@@ -25,6 +25,10 @@ export interface Snapshot {
   token:      TokenInfo
   wallets:    WalletProfile[]
   note?:      string      // optional user label
+  // Cohort-level dropdowns. Optional for backward compatibility with snapshots
+  // saved before these were persisted; loader falls back to [].
+  sharedTokens?:       SharedToken[]
+  sharedTradedTokens?: SharedToken[]
 }
 
 export interface SnapshotMeta {

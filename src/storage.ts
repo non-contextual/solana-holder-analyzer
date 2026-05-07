@@ -2,7 +2,7 @@
 // File layout: data/{mint}/{timestamp_ms}.json
 // The `data/` directory lives next to `src/` in the project root.
 
-import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 'fs'
 import { join, basename } from 'path'
 import type { WalletProfile, TokenInfo } from './types'
 
@@ -109,7 +109,7 @@ export function deleteSnapshot(mint: string, filename: string): boolean {
   const path = join(mintDir(mint), filename)
   if (!existsSync(path)) return false
   try {
-    require('fs').unlinkSync(path)
+    unlinkSync(path)
     return true
   } catch {
     return false

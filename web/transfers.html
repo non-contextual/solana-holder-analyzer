@@ -14,6 +14,13 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   }
+  /* Dark scrollbars matching the surface ramp (Firefox + WebKit). */
+  html { scrollbar-color: #2A2A2A #0A0A0A; scrollbar-width: thin; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: #0A0A0A; }
+  *::-webkit-scrollbar-thumb { background: #2A2A2A; border: 2px solid #0A0A0A; border-radius: 0; }
+  *::-webkit-scrollbar-thumb:hover { background: #3A3A3A; }
+  *::-webkit-scrollbar-corner { background: #0A0A0A; }
   :root {
     --bg: #0A0A0A; --surface: #161616; --surface-2: #1F1F1F;
     --border: #2A2A2A; --border-2: #3A3A3A;

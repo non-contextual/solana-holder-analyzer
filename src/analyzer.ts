@@ -46,6 +46,8 @@ export async function analyzeToken(
   let done    = 0
 
   await pMap(holders, async (holder, idx) => {
+    // Announce work-in-progress so the UI can show "Analyzing X…".
+    // done is unchanged here; it advances only after the wallet finishes below.
     onEvent({ type: 'progress', done, total, address: holder.owner })
 
     const balance   = Number(holder.amount) / Math.pow(10, supply.decimals)
@@ -122,6 +124,10 @@ export async function analyzeToken(
     }
 
     done++
+    // Emit progress AFTER done advances so the UI bar grows monotonically.
+    // Without this, the only progress events were sent BEFORE done++ — so the
+    // bar would never reach 100% from progress alone, only from wallet events.
+    onEvent({ type: 'progress', done, total, address: holder.owner })
     onEvent({ type: 'wallet', wallet: profile })
   }, CONCURRENCY)
 

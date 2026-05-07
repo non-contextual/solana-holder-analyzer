@@ -29,6 +29,19 @@
   a.back-link { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--border); padding: 4px 10px; }
   a.back-link:hover { color: var(--text); border-color: var(--border-2); }
 
+  /* ── Mobile (≤640px): stack header + form, tighten gutters ── */
+  @media (max-width: 640px) {
+    header { flex-wrap: wrap; padding: 12px 16px; row-gap: 8px; }
+    .header-actions { width: 100%; margin-left: 0; }
+    .settings { padding: 16px 16px; gap: 12px; }
+    .settings .field { width: 100%; }
+    .settings textarea { width: 100%; min-width: 0; }
+    .settings .field:has(input[type="number"]),
+    .settings .field:has(.depth-group),
+    .settings .field:has(input[type="date"]) { width: auto; flex: 0 1 auto; }
+    .settings .btn-primary { margin-left: auto; }
+  }
+
   /* Settings */
   .settings { padding: 16px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; flex-shrink: 0; }
   .field { display: flex; flex-direction: column; gap: 5px; }

@@ -12,6 +12,19 @@ import type { SseEvent }   from './types'
 
 setupProxy()
 
+// Surface missing API keys at boot rather than at the first user request.
+// Non-fatal: the server still starts (you can serve cached snapshots, static
+// HTML, etc.) but you get a clear log line about what will 500.
+function checkEnv(): void {
+  const okxOk    = !!(process.env.OKX_API_KEY && process.env.OKX_PASSPHRASE && process.env.OKX_SECRET_KEY)
+  const heliusOk = !!(process.env.HELIUS_API_KEY || process.env.HELIUS_RPC_URL)
+  const fmt = (ok: boolean) => ok ? '✓' : '✗'
+  console.log(`Env: OKX ${fmt(okxOk)}  Helius ${fmt(heliusOk)}`)
+  if (!okxOk)    console.warn('  ⚠ OKX_API_KEY / OKX_PASSPHRASE / OKX_SECRET_KEY missing — /api/analyze will 500')
+  if (!heliusOk) console.warn('  ⚠ HELIUS_API_KEY missing — /api/analyze and /api/transfers will 500')
+}
+checkEnv()
+
 const app = new Hono()
 
 app.use('/*', cors())

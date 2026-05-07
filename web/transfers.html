@@ -11,6 +11,9 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
   input:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); }
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
+  }
   :root {
     --bg: #0A0A0A; --surface: #161616; --surface-2: #1F1F1F;
     --border: #2A2A2A; --border-2: #3A3A3A;

@@ -66,7 +66,12 @@ export async function analyzeToken(
         if (t.mint && t.symbol) mintMeta.set(t.mint, { symbol: t.symbol, logoUrl: '' })
         mintCount.set(t.mint, (mintCount.get(t.mint) ?? 0) + 1)
       }
-      if (tokenPrice == null && balances.targetTokenPrice != null && balances.targetTokenPrice > 0) {
+      // Last-write-wins: each wallet's OKX response carries a fresh price snapshot,
+      // and pMap completion order ≈ fetch return order, so overwriting gives us the
+      // newest known price by the time the run ends. Fixes a stale-price bug where
+      // the first wallet to return locked in a price for the whole run, even when
+      // later wallets had data 5–30s newer (meaningful for meme coins).
+      if (balances.targetTokenPrice != null && balances.targetTokenPrice > 0) {
         tokenPrice = balances.targetTokenPrice
       }
     }

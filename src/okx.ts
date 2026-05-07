@@ -34,9 +34,9 @@ const SOL_MINTS = new Set([
 
 // ── OKX signing + rate-limit handling ────────────────────────────────────────
 //
-// OKX signed API rate limit: ~10 req/s per key.
-// With 200 wallets at CONCURRENCY=5, we can burst past the limit and get 429.
-// Fix: global semaphore (max 3 concurrent) + retry on 429 (wait 15s, up to 3 tries).
+// OKX signed API rate limit: ~5 req/s observed in testing (Start-up tier).
+// Token bucket: refills at RATE tokens/s, holds up to BURST tokens max.
+// Callers queue and wait for a token — no thundering-herd retries needed.
 
 function sign(ts: string, method: string, path: string): string {
   const secret = process.env.OKX_SECRET_KEY
@@ -44,21 +44,47 @@ function sign(ts: string, method: string, path: string): string {
   return crypto.createHmac('sha256', secret).update(ts + method + path + '').digest('base64')
 }
 
-// Global concurrency limiter for signed API calls
-const SIGNED_MAX = 3
-let   signedInFlight = 0
-const signedQueue: Array<() => void> = []
+// Token bucket rate limiter for signed API calls
+const RATE  = 2          // tokens added per second — OKX signed API sustains ~2 req/s
+const BURST = 3          // max tokens held (allows initial burst of 3 before throttling)
 
-function acquireSignedSlot(): Promise<void> {
-  return new Promise(resolve => {
-    if (signedInFlight < SIGNED_MAX) { signedInFlight++; resolve() }
-    else signedQueue.push(() => { signedInFlight++; resolve() })
-  })
+let   tokens     = BURST
+let   lastRefil  = Date.now()
+let   drainTimer: ReturnType<typeof setTimeout> | null = null
+const waitQueue: Array<() => void> = []
+
+function refill(): void {
+  const now  = Date.now()
+  tokens     = Math.min(BURST, tokens + (now - lastRefil) / 1000 * RATE)
+  lastRefil  = now
 }
-function releaseSignedSlot(): void {
-  const next = signedQueue.shift()
-  if (next) next()
-  else signedInFlight--
+
+// One shared timer drives all queue draining — no competing timeouts.
+function scheduleDrain(): void {
+  if (drainTimer !== null) return
+  const ms   = Math.ceil(Math.max(0, 1 - tokens) / RATE * 1000)
+  drainTimer = setTimeout(() => {
+    drainTimer = null
+    drainQueue()
+  }, ms)
+}
+
+function drainQueue(): void {
+  refill()
+  while (waitQueue.length > 0 && tokens >= 1) {
+    tokens--
+    waitQueue.shift()!()
+  }
+  if (waitQueue.length > 0) scheduleDrain()
+}
+
+function acquireToken(): Promise<void> {
+  refill()
+  if (tokens >= 1) { tokens--; return Promise.resolve() }
+  return new Promise(resolve => {
+    waitQueue.push(resolve)
+    scheduleDrain()
+  })
 }
 
 async function okxSignedGet<T>(path: string, maxRetries = 3): Promise<T> {
@@ -66,54 +92,50 @@ async function okxSignedGet<T>(path: string, maxRetries = 3): Promise<T> {
   const passphrase = process.env.OKX_PASSPHRASE
   if (!apiKey || !passphrase || !process.env.OKX_SECRET_KEY) throw new Error('OKX keys missing')
 
-  await acquireSignedSlot()
-  try {
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      const ts = new Date().toISOString()
-      const ac = new AbortController()
-      const to = setTimeout(() => ac.abort(), TIMEOUT_MS)
-      try {
-        const res = await fetch(BASE + path, {
-          headers: {
-            'Content-Type':         'application/json',
-            'OK-ACCESS-KEY':        apiKey,
-            'OK-ACCESS-SIGN':       sign(ts, 'GET', path),
-            'OK-ACCESS-PASSPHRASE': passphrase,
-            'OK-ACCESS-TIMESTAMP':  ts,
-          },
-          signal: ac.signal,
-        })
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    await acquireToken()
 
-        // Rate limited — wait 15s and retry
-        if (res.status === 429) {
-          clearTimeout(to)
-          if (attempt < maxRetries) {
-            // Jitter: 2s + 0-2s random, avoids thundering herd when all workers retry simultaneously
-            const wait = 2_000 + Math.random() * 2_000
-            console.log(`[OKX] 429 rate limit, waiting ${(wait/1000).toFixed(1)}s... (attempt ${attempt + 1}/${maxRetries})`)
-            await new Promise(r => setTimeout(r, wait))
-            continue
-          }
-          throw new Error('OKX 429: rate limit exceeded after retries')
-        }
+    const ts = new Date().toISOString()
+    const ac = new AbortController()
+    const to = setTimeout(() => ac.abort(), TIMEOUT_MS)
+    try {
+      const res = await fetch(BASE + path, {
+        headers: {
+          'Content-Type':         'application/json',
+          'OK-ACCESS-KEY':        apiKey,
+          'OK-ACCESS-SIGN':       sign(ts, 'GET', path),
+          'OK-ACCESS-PASSPHRASE': passphrase,
+          'OK-ACCESS-TIMESTAMP':  ts,
+        },
+        signal: ac.signal,
+      })
+      clearTimeout(to)
 
-        if (!res.ok) throw new Error(`OKX HTTP ${res.status}`)
-        const body = (await res.json()) as { code: string; msg?: string; data?: T }
-        if (body.code !== '0') throw new Error(`OKX ${body.code}: ${body.msg ?? 'unknown'}`)
-        return body.data as T
-      } catch (err: any) {
-        clearTimeout(to)
-        if (attempt < maxRetries && err?.name !== 'AbortError') {
-          await new Promise(r => setTimeout(r, 1_000 * (attempt + 1)))
+      if (res.status === 429) {
+        // Bucket miscalibrated or OKX server-side limit — back off and retry
+        if (attempt < maxRetries) {
+          const wait = 2_000 + Math.random() * 2_000
+          console.log(`[OKX] 429 — bucket needs wider margin, waiting ${(wait/1000).toFixed(1)}s (attempt ${attempt + 1}/${maxRetries})`)
+          await new Promise(r => setTimeout(r, wait))
           continue
         }
-        throw err
+        throw new Error('OKX 429: rate limit exceeded after retries')
       }
+
+      if (!res.ok) throw new Error(`OKX HTTP ${res.status}`)
+      const body = (await res.json()) as { code: string; msg?: string; data?: T }
+      if (body.code !== '0') throw new Error(`OKX ${body.code}: ${body.msg ?? 'unknown'}`)
+      return body.data as T
+    } catch (err: any) {
+      clearTimeout(to)
+      if (attempt < maxRetries && err?.name !== 'AbortError') {
+        await new Promise(r => setTimeout(r, 1_000 * (attempt + 1)))
+        continue
+      }
+      throw err
     }
-    throw new Error('OKX: max retries exceeded')
-  } finally {
-    releaseSignedSlot()
   }
+  throw new Error('OKX: max retries exceeded')
 }
 
 // ── Signed balance API ────────────────────────────────────────────────────────

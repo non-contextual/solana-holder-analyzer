@@ -81,6 +81,13 @@ function buildEdges(
     // Only include edges where at least one endpoint is a tracked node
     if (!nodeSet.has(t.from) && !nodeSet.has(t.to)) continue
 
+    // Dedup key uses lexicographic order so (X→Y) and (Y→X) collapse onto the
+    // same edge regardless of which direction came first. The `sign` field
+    // tracks net direction: +1 if this transfer matches the canonical
+    // lex-ordered direction, -1 if it's the reverse. Net flow is the signed
+    // sum; the absolute value is the magnitude. The final emit step at the
+    // bottom of this function flips `from`/`to` based on the sign so the
+    // emitted edge always points in the dominant net-flow direction.
     const [a, b, sign] = t.from < t.to
       ? [t.from, t.to, 1]
       : [t.to, t.from, -1]

@@ -51,10 +51,14 @@ export interface WalletProfile {
 
 // Token commonly held across multiple analyzed wallets (for co-holder dropdown)
 export interface SharedToken {
-  mint:    string
-  symbol:  string
-  logoUrl: string
-  count:   number   // number of wallets that hold this token
+  mint:     string
+  symbol:   string
+  logoUrl:  string
+  count:    number   // number of wallets that hold this token
+  // Total USD across the wallets that hold this token. 0 for the co-trades
+  // list (priapi trade history doesn't carry USD per row), populated only
+  // for co-holds (OKX signed balance rows do).
+  totalUsd: number
 }
 
 export interface ProgressEvent { type: 'progress'; done: number; total: number; address: string }

@@ -143,7 +143,7 @@ async function okxSignedGet<T>(path: string, maxRetries = 3): Promise<T> {
 
 // ── Signed balance API ────────────────────────────────────────────────────────
 
-export interface MintEntry { mint: string; symbol: string; logoUrl: string }
+export interface MintEntry { mint: string; symbol: string; logoUrl: string; usd: number }
 
 export interface WalletBalances {
   targetBalanceUsd:  number | null   // USD value of target token position (null if not held)
@@ -188,7 +188,7 @@ export async function getWalletBalances(
 
     portfolioTotalUsd += usd
     allMints.push(mint)
-    allTokens.push({ mint, symbol: r.symbol ?? '', logoUrl: '' })
+    allTokens.push({ mint, symbol: r.symbol ?? '', logoUrl: '', usd })
 
     if (!SOL_MINTS.has(mint) && !STABLECOIN_MINTS.has(mint)) {
       splTotalUsd += usd

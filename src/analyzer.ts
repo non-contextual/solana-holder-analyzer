@@ -62,6 +62,7 @@ export async function analyzeToken(
 
   const mintMeta       = new Map<string, { symbol: string; logoUrl: string }>()
   const mintCount      = new Map<string, number>()   // co-holds: currently held
+  const mintUsdSum     = new Map<string, number>()   // co-holds: USD across all wallets that hold it
   const tradedCount    = new Map<string, number>()   // co-trades: traded in 90d
 
   let tokenPrice: number | null = null
@@ -93,6 +94,7 @@ export async function analyzeToken(
         if (!t.mint) continue
         if (t.symbol) mintMeta.set(t.mint, { symbol: t.symbol, logoUrl: '' })
         mintCount.set(t.mint, (mintCount.get(t.mint) ?? 0) + 1)
+        mintUsdSum.set(t.mint, (mintUsdSum.get(t.mint) ?? 0) + (Number.isFinite(t.usd) ? t.usd : 0))
       }
       // Last-write-wins: each wallet's OKX response carries a fresh price snapshot,
       // and pMap completion order ≈ fetch return order, so overwriting gives us the
@@ -185,7 +187,13 @@ export async function analyzeToken(
       .filter(([m]) => m !== mint && m !== '')
       .map(([m, count]) => {
         const meta = mintMeta.get(m) ?? { symbol: m.slice(0, 6) + '…', logoUrl: '' }
-        return { mint: m, symbol: meta.symbol, logoUrl: meta.logoUrl, count }
+        return {
+          mint:     m,
+          symbol:   meta.symbol,
+          logoUrl:  meta.logoUrl,
+          count,
+          totalUsd: mintUsdSum.get(m) ?? 0,
+        }
       })
       .sort((a, b) => b.count - a.count)
       .slice(0, SHARED_LIST_LIMIT)

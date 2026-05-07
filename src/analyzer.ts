@@ -15,6 +15,19 @@ function holdingTimeToMillis(ts: number): number {
   return ts > 1e12 ? ts : ts * 1000
 }
 
+// Compute (numer / denom) * 100, returning null when:
+// - either input is missing
+// - denom is non-positive (avoid divide-by-zero / negative-share nonsense)
+// - the ratio exceeds 100% (mathematically impossible for "share of a total"
+//   relationships; indicates inconsistent OKX data — usually a wallet whose
+//   target token shows up at a different price/quantity in the row that sets
+//   targetBalanceUsd vs the row that contributes to splTotalUsd)
+function ratioOrNull(numer: number | null, denom: number | null): number | null {
+  if (numer == null || denom == null || denom <= 0) return null
+  const pct = (numer / denom) * 100
+  return pct > 100 ? null : pct
+}
+
 function getRpcUrl(): string {
   if (process.env.HELIUS_RPC_URL) return process.env.HELIUS_RPC_URL
   const key = process.env.HELIUS_API_KEY
@@ -140,12 +153,16 @@ export async function analyzeToken(
       // numerator, the two USD values use different price bases and timestamps —
       // for PDAs the typical pathology is a $13K priapi position over a $0.18
       // signed-portfolio (OKX only sees the dust SOL the PDA holds), giving
-      // ratios in the millions of percent. Returning null here keeps these rows
-      // out of cohort averages instead of polluting them.
-      tokenPctOfTotal:   (balanceUsdSigned != null && portfolioUsd != null && portfolioUsd > 0)
-        ? (balanceUsdSigned / portfolioUsd) * 100 : null,
-      tokenPctOfSpl:     (balanceUsdSigned != null && splUsd != null && splUsd > 0)
-        ? (balanceUsdSigned / splUsd) * 100 : null,
+      // ratios in the millions of percent. Returning null keeps those rows out of
+      // cohort averages instead of polluting them.
+      //
+      // Sanity clamp at 100%: even when both come from the same snapshot, OKX
+      // occasionally returns rows where the target's USD exceeds splTotalUsd
+      // (observed for some meme coins where the wallet's response classifies
+      // the target oddly). Treat ratio > 100 as "data unreliable, drop it"
+      // rather than leaning on a 175% display.
+      tokenPctOfTotal: ratioOrNull(balanceUsdSigned, portfolioUsd),
+      tokenPctOfSpl:   ratioOrNull(balanceUsdSigned, splUsd),
 
       uniqueTokens7d:  tradeStats?.uniqueTokens7d  ?? null,
       uniqueTokens90d: tradeStats?.uniqueTokens90d ?? null,

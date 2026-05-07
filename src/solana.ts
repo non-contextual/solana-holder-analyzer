@@ -76,13 +76,28 @@ export async function getTopHolders(
     throw new Error(`Token has ${result.length.toLocaleString()} holder accounts — too large to analyze`)
   }
 
-  return result
+  // Decode each token account into (owner, amount).
+  const decoded = result
     .map((r) => {
       const buf   = Buffer.from(r.account.data[0], 'base64')
       const owner = new PublicKey(buf.subarray(0, 32)).toBase58()
       return { owner, amount: buf.readBigUInt64LE(32) }
     })
     .filter((h) => h.amount > 0n)
+
+  // Combine balances when one owner holds multiple token accounts for the
+  // same mint. This happens in the wild for wallets that have a standard ATA
+  // plus extra accounts owned by vault programs, legacy spl-token tools,
+  // multi-sig wrappers, etc. Without this dedup the same owner shows up as
+  // multiple top-holder rows with different supply % but identical OKX-derived
+  // metrics, which is confusing and inflates the holder count.
+  const byOwner = new Map<string, bigint>()
+  for (const h of decoded) {
+    byOwner.set(h.owner, (byOwner.get(h.owner) ?? 0n) + h.amount)
+  }
+
+  return [...byOwner.entries()]
+    .map(([owner, amount]) => ({ owner, amount }))
     .sort((a, b) => (a.amount > b.amount ? -1 : 1))
     .slice(0, topN)
 }

@@ -68,7 +68,11 @@
   .field-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
   input[type="text"], input[type="number"] { background: var(--bg); border: 1px solid var(--border-2); color: var(--text); font-family: var(--font-data); font-size: 13px; padding: 9px 12px; outline: none; border-radius: 0; transition: border-color 0.15s; }
   input[type="text"] { min-width: 380px; }
-  input[type="number"] { width: 80px; }
+  input[type="number"] { width: 80px; -moz-appearance: textfield; }
+  /* Hide the native up/down chevrons — they render as light grey on Windows
+     and clash with the dark terminal aesthetic. Same effect across browsers. */
+  input[type="number"]::-webkit-inner-spin-button,
+  input[type="number"]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
   input:focus { border-color: var(--accent); }
   input::placeholder { color: var(--subtle); }
   button { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border: none; border-radius: 0; transition: opacity 0.15s; }

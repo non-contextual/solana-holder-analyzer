@@ -4,6 +4,17 @@ import type { WalletProfile, TokenInfo, SharedToken, SseEvent }             from
 
 const CONCURRENCY = 5
 
+// Cap for the co-held / co-traded dropdowns. Pure UI affordance — anything
+// past ~150 entries is unusable in a dropdown, even with search.
+const SHARED_LIST_LIMIT = 150
+
+// OKX returns holdingTime as unix SECONDS (per their docs / observed). Defensive
+// against a future API change to milliseconds: anything past 1e12 (year 2001+
+// in millis) is already in millis; below that it's seconds, multiply by 1000.
+function holdingTimeToMillis(ts: number): number {
+  return ts > 1e12 ? ts : ts * 1000
+}
+
 function getRpcUrl(): string {
   if (process.env.HELIUS_RPC_URL) return process.env.HELIUS_RPC_URL
   const key = process.env.HELIUS_API_KEY
@@ -63,7 +74,11 @@ export async function analyzeToken(
     // Collect mint→symbol for co-holds dropdown
     if (balances) {
       for (const t of balances.allTokens) {
-        if (t.mint && t.symbol) mintMeta.set(t.mint, { symbol: t.symbol, logoUrl: '' })
+        // Native SOL comes through with mint='' from OKX — skip it. The previous
+        // version still incremented mintCount for empty strings and relied on
+        // buildSharedList to filter them out at the end (wasted memory + reads).
+        if (!t.mint) continue
+        if (t.symbol) mintMeta.set(t.mint, { symbol: t.symbol, logoUrl: '' })
         mintCount.set(t.mint, (mintCount.get(t.mint) ?? 0) + 1)
       }
       // Last-write-wins: each wallet's OKX response carries a fresh price snapshot,
@@ -110,7 +125,7 @@ export async function analyzeToken(
       sellVolumeSol:           pnl ? parseFloat(pnl.sellVolume)            : null,
       totalTxBuy:              pnl?.totalTxBuy              ?? null,
       totalTxSell:             pnl?.totalTxSell             ?? null,
-      holdingTimestamp:        pnl?.holdingTime ? pnl.holdingTime * 1000 : null,
+      holdingTimestamp:        pnl?.holdingTime ? holdingTimeToMillis(pnl.holdingTime) : null,
       holdAmountPctForMaxHold: pnl?.holdAmountPctForMaxHold ?? null,
 
       portfolioTotalUsd: portfolioUsd,
@@ -144,7 +159,7 @@ export async function analyzeToken(
         return { mint: m, symbol: meta.symbol, logoUrl: meta.logoUrl, count }
       })
       .sort((a, b) => b.count - a.count)
-      .slice(0, 150)
+      .slice(0, SHARED_LIST_LIMIT)
   }
 
   const sharedTokens       = buildSharedList(mintCount)    // co-holds

@@ -169,7 +169,11 @@
 
   /* Co-holds dropdown */
   .co-holds-wrap { position: relative; display: flex; align-items: stretch; }
-  .co-holds-wrap input { flex: 1; padding-right: 28px; }
+  /* min-width: 0 overrides the global input[type=text] { min-width: 380px } rule
+     for the mint input — without it, the co-holds inputs would overflow their
+     180px-wide filter cell and the dropdown (anchored to the wrap) would be
+     visibly narrower than the input it's attached to. */
+  .co-holds-wrap input { flex: 1; padding-right: 28px; min-width: 0; }
   .co-holds-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--subtle); cursor: pointer; font-size: 13px; padding: 0; letter-spacing: 0; text-transform: none; line-height: 1; }
   .co-holds-clear:hover { color: var(--text); }
 
@@ -783,14 +787,14 @@ function clearFilters() {
 
 // ── Co-holds dropdown ─────────────────────────────────────────────────────────
 // Render one row of the co-holds / co-trades dropdown. `select` is the onclick
-// handler name. Always emits a .co-item-usd span (empty for co-trades) so the
-// layout is uniform — that span carries margin-left: auto, pushing the count
-// badge to the right edge.
+// handler name. Layout: [symbol] [USD-or-empty] [count]. The mint is in the
+// data-mint attr (used by the click handler) and the row's title (hover
+// tooltip) — dropping it from the visible row keeps three columns fitting in
+// the narrow filter cell.
 function coItemHtml(t, select) {
   const usdHtml = t.totalUsd > 0 ? '$' + fmtNum(t.totalUsd, 0) : ''
-  return `<div class="co-item" data-mint="${t.mint}" data-symbol="${t.symbol}" onclick="${select}(this)">
+  return `<div class="co-item" data-mint="${t.mint}" data-symbol="${t.symbol}" title="${t.mint}" onclick="${select}(this)">
       <span class="co-item-symbol">${t.symbol}</span>
-      <span class="co-item-mint">${shortAddr(t.mint)}</span>
       <span class="co-item-usd">${usdHtml}</span>
       <span class="co-item-count">${t.count}w</span>
     </div>`

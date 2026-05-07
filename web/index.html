@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>token-analyzer</title>
+<title>Token Analyzer</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -33,7 +33,8 @@
   /* ── Header ── */
   header { border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; background: var(--surface); position: sticky; top: 0; z-index: 100; }
   .logo { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
-  .logo-sep { color: var(--subtle); margin: 0 4px; }
+  .logo-sep { color: var(--subtle); margin: 0 4px; font-weight: inherit; }
+  .header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
   .chain-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); padding: 2px 6px; }
 
   /* ── Input section ── */
@@ -265,15 +266,15 @@
 <div class="app">
 
   <header>
-    <span class="logo">token<span class="logo-sep">/</span>analyzer</span>
+    <h1 class="logo">token<span class="logo-sep">/</span>analyzer</h1>
     <span class="chain-badge">Solana</span>
-    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <nav class="header-actions" aria-label="Primary">
       <div style="position:relative">
         <button onclick="toggleHistory()" id="btnHistory" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);background:none;border:1px solid var(--border);padding:4px 10px;cursor:pointer">History ▾</button>
         <div id="historyPanel" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border-2);min-width:320px;max-height:340px;overflow-y:auto;z-index:300"></div>
       </div>
       <a href="/transfers" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:4px 10px;">Transfer →</a>
-    </div>
+    </nav>
   </header>
 
   <div class="input-section">
@@ -401,7 +402,7 @@
   <main>
     <div class="empty-state" id="emptyState">
       <div class="empty-icon">//</div>
-      <div class="empty-title">No Analysis Yet</div>
+      <h2 class="empty-title">No Analysis Yet</h2>
       <div class="empty-sub">Enter a token mint address and click Analyze to fetch the top holders and their on-chain profile.</div>
     </div>
 

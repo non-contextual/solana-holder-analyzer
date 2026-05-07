@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>transfer investigation</title>
+<title>Transfer Investigation</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
 <script src="https://d3js.org/d3.v7.min.js"></script>
@@ -25,7 +25,8 @@
   header { border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 16px; background: var(--surface); flex-shrink: 0; }
   .logo { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
   .logo-sep { color: var(--subtle); margin: 0 4px; }
-  a.back-link { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--border); padding: 4px 10px; margin-left: auto; }
+  .header-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+  a.back-link { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--border); padding: 4px 10px; }
   a.back-link:hover { color: var(--text); border-color: var(--border-2); }
 
   /* Settings */
@@ -117,8 +118,10 @@
 <div class="app">
 
   <header>
-    <span class="logo">transfer<span class="logo-sep">/</span>investigation</span>
-    <a class="back-link" href="/">← token analyzer</a>
+    <h1 class="logo">transfer<span class="logo-sep">/</span>investigation</h1>
+    <nav class="header-actions" aria-label="Primary">
+      <a class="back-link" href="/">← token analyzer</a>
+    </nav>
   </header>
 
   <!-- Settings -->
@@ -150,11 +153,11 @@
     <button class="btn-primary" id="btnScan" onclick="startScan()">Start Scan</button>
   </div>
 
-  <div class="body">
+  <main class="body">
     <!-- Empty state -->
     <div class="empty" id="emptyState">
       <div class="empty-icon">⟳</div>
-      <div class="empty-title">No Investigation Yet</div>
+      <h2 class="empty-title">No Investigation Yet</h2>
       <div class="empty-sub">Paste wallet addresses above, set a time range and depth, then click Start Scan.</div>
     </div>
 
@@ -204,7 +207,7 @@
         Scanned <b id="sScanned">—</b>
       </div>
     </div>
-  </div>
+  </main>
 
 </div>
 

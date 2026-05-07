@@ -9,6 +9,8 @@
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  input:focus-visible, textarea:focus-visible { outline: none; border-color: var(--accent); }
   :root {
     --bg: #0A0A0A; --surface: #161616; --surface-2: #1F1F1F;
     --border: #2A2A2A; --border-2: #3A3A3A;

@@ -1,0 +1,1551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>token-analyzer</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg:        #0A0A0A;
+    --surface:   #161616;
+    --surface-2: #1F1F1F;
+    --border:    #2A2A2A;
+    --border-2:  #3A3A3A;
+    --text:      #F2F2F0;
+    --muted:     #8C8C8A;
+    --subtle:    #5A5A58;
+    --accent:    #F5A623;
+    --mint:      #5DD49A;
+    --red:       #E84B4B;
+    --blue:      #6B9BFF;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-body: 'Geist', sans-serif;
+    --font-data: 'Geist Mono', monospace;
+  }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; line-height: 1.5; min-height: 100vh; }
+  .app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  /* ── Header ── */
+  header { border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; background: var(--surface); position: sticky; top: 0; z-index: 100; }
+  .logo { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+  .logo-sep { color: var(--subtle); margin: 0 4px; }
+  .chain-badge { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); padding: 2px 6px; }
+
+  /* ── Input section ── */
+  .input-section { border-bottom: 1px solid var(--border); padding: 20px 24px; background: var(--surface); }
+  .input-row { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .field-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  input[type="text"], input[type="number"] { background: var(--bg); border: 1px solid var(--border-2); color: var(--text); font-family: var(--font-data); font-size: 13px; padding: 9px 12px; outline: none; border-radius: 0; transition: border-color 0.15s; }
+  input[type="text"] { min-width: 380px; }
+  input[type="number"] { width: 80px; }
+  input:focus { border-color: var(--accent); }
+  input::placeholder { color: var(--subtle); }
+  button { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border: none; border-radius: 0; transition: opacity 0.15s; }
+  button:hover:not(:disabled) { opacity: 0.85; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  .btn-primary { background: var(--accent); color: #000; padding: 9px 20px; }
+  .btn-secondary { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); padding: 9px 16px; }
+  .btn-accent-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 9px 16px; }
+
+  /* ── Progress ── */
+  .progress-section { padding: 12px 24px; border-bottom: 1px solid var(--border); display: none; align-items: center; gap: 12px; }
+  .progress-section.visible { display: flex; }
+  .progress-bar-wrap { flex: 1; height: 2px; background: var(--border); overflow: hidden; }
+  .progress-bar { height: 100%; background: var(--accent); transition: width 0.3s ease; width: 0%; }
+  .progress-text { font-family: var(--font-mono); font-size: 11px; color: var(--muted); white-space: nowrap; letter-spacing: 0.05em; }
+  .spinner { width: 14px; height: 14px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.6s linear infinite; flex-shrink: 0; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Token header ── */
+  .token-header { padding: 14px 24px; border-bottom: 1px solid var(--border); display: none; align-items: center; gap: 16px; background: var(--surface); }
+  .token-header.visible { display: flex; }
+  .token-logo { width: 30px; height: 30px; border-radius: 50%; object-fit: cover; background: var(--surface-2); border: 1px solid var(--border); flex-shrink: 0; }
+  .token-name { font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 0.04em; }
+  .token-mint { font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .token-stats { margin-left: auto; display: flex; gap: 28px; }
+  .stat { display: flex; flex-direction: column; gap: 1px; align-items: flex-end; }
+  .stat-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); }
+  .stat-value { font-family: var(--font-data); font-size: 13px; font-weight: 500; }
+
+  /* ── Filter bar ── */
+  .filter-bar { border-bottom: 1px solid var(--border); display: none; background: var(--surface); }
+  .filter-bar.visible { display: block; }
+
+  .filter-row { padding: 10px 24px; display: flex; align-items: center; gap: 20px; flex-wrap: wrap; border-bottom: 1px solid var(--border); }
+  .filter-row:last-child { border-bottom: none; }
+
+  .filter-group { display: flex; align-items: center; gap: 6px; }
+  .filter-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); white-space: nowrap; }
+
+  .filter-input { font-size: 12px; padding: 5px 8px; width: 70px; }
+  .filter-input.wide { width: 110px; }
+  .filter-sep { font-family: var(--font-data); font-size: 12px; color: var(--subtle); padding: 0 2px; }
+
+  /* AND/OR toggle */
+  .logic-toggle { display: flex; border: 1px solid var(--border); overflow: hidden; flex-shrink: 0; }
+  .logic-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 5px 12px; background: transparent; color: var(--muted); border: none; cursor: pointer; transition: all 0.1s; border-radius: 0; }
+  .logic-btn.active { background: var(--accent); color: #000; }
+
+  .filter-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: #F5A62310; border: 1px solid #F5A62330; padding: 3px 8px; white-space: nowrap; }
+
+  /* ── Table ── */
+  main { flex: 1; overflow: auto; }
+  table { width: 100%; border-collapse: collapse; min-width: 1100px; }
+  thead { position: sticky; top: 0; z-index: 10; }
+  th { background: var(--surface); border-bottom: 1px solid var(--border); padding: 9px 12px; text-align: left; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; cursor: pointer; user-select: none; }
+  th:hover { color: var(--text); }
+  th.sorted { color: var(--accent); }
+  th .sa { margin-left: 3px; opacity: 0.7; }
+  td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; font-family: var(--font-data); font-size: 12px; white-space: nowrap; }
+  tr:hover td { background: var(--surface); }
+
+  .td-rank { color: var(--subtle); font-size: 11px; width: 28px; text-align: right; padding-right: 6px; }
+  .td-address { font-size: 12px; }
+  .addr-wrap { display: flex; align-items: center; gap: 6px; }
+  .addr-link { color: var(--text); text-decoration: none; font-family: var(--font-data); }
+  .addr-link:hover { color: var(--accent); }
+  .copy-btn { background: none; border: none; color: var(--subtle); padding: 0; cursor: pointer; font-size: 11px; font-family: var(--font-data); letter-spacing: 0; text-transform: none; }
+  .copy-btn:hover { color: var(--text); }
+
+  /* account type badges */
+  .acct-badge { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 5px; border: 1px solid; flex-shrink: 0; }
+  .badge-program      { color: #6B9BFF; border-color: #6B9BFF; background: #6B9BFF10; }
+  .badge-bonding_curve{ color: #F5A623; border-color: #F5A623; background: #F5A62310; }
+  .badge-lp           { color: #5DD49A; border-color: #5DD49A; background: #5DD49A10; }
+  .badge-pda          { color: #8C8C8A; border-color: #3A3A3A; background: transparent; }
+
+  .td-num { text-align: right; }
+  .td-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .td-null { color: var(--subtle); }
+  .pnl-pos { color: var(--mint); }
+  .pnl-neg { color: var(--red); }
+  .pnl-zero { color: var(--muted); }
+  .pct-bar { height: 2px; background: var(--border); margin-top: 4px; border-radius: 1px; }
+  .pct-fill { height: 100%; max-width: 100%; border-radius: 1px; }
+  .pct-fill-amber  { background: var(--accent); }
+  .pct-fill-blue   { background: var(--blue); }
+  .pct-fill-mint   { background: var(--mint); }
+  .pct-est { font-style: italic; color: var(--muted); }  /* estimated value */
+
+  /* Co-holds dropdown */
+  .co-holds-wrap { position: relative; display: flex; align-items: stretch; }
+  .co-holds-wrap input { flex: 1; padding-right: 28px; }
+  .co-holds-clear { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); background: none; border: none; color: var(--subtle); cursor: pointer; font-size: 13px; padding: 0; letter-spacing: 0; text-transform: none; line-height: 1; }
+  .co-holds-clear:hover { color: var(--text); }
+
+  .co-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: var(--surface); border: 1px solid var(--border-2); max-height: 280px; overflow-y: auto; z-index: 200; }
+  .co-dropdown.hidden { display: none; }
+  .co-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-family: var(--font-data); font-size: 12px; border-bottom: 1px solid var(--border); }
+  .co-item:last-child { border-bottom: none; }
+  .co-item:hover, .co-item.selected { background: var(--surface-2); }
+  .co-item-logo { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; background: var(--border); flex-shrink: 0; }
+  .co-item-symbol { color: var(--text); font-weight: 500; min-width: 60px; }
+  .co-item-count { margin-left: auto; font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.06em; background: #F5A62315; border: 1px solid #F5A62330; padding: 1px 6px; }
+  .co-item-mint { color: var(--subtle); font-size: 11px; }
+
+  /* ── Empty / error ── */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 24px; color: var(--muted); text-align: center; }
+  .empty-icon { font-family: var(--font-mono); font-size: 24px; color: var(--subtle); }
+  .empty-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .empty-sub { font-size: 13px; color: var(--subtle); max-width: 400px; }
+  .error-bar { background: #E84B4B0E; border: 1px solid var(--red); color: var(--red); padding: 10px 24px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; display: none; margin: 12px 24px; }
+  .error-bar.visible { display: block; }
+
+  /* ── Footer ── */
+  .footer-bar { position: sticky; bottom: 0; border-top: 1px solid var(--border); background: var(--surface); padding: 10px 24px; display: none; align-items: center; gap: 20px; }
+  .footer-bar.visible { display: flex; }
+  .footer-stat { display: flex; align-items: baseline; gap: 6px; }
+  .footer-stat-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); }
+  .footer-stat-value { font-family: var(--font-data); font-size: 13px; }
+  .footer-supply-pct { font-size: 17px; font-weight: 700; color: var(--accent); font-family: var(--font-mono); }
+  .footer-sep { width: 1px; height: 18px; background: var(--border); }
+
+  /* History panel */
+  .hist-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .hist-item:hover { background: var(--surface-2); }
+  .hist-item.active { background: #F5A62310; border-left: 2px solid var(--accent); }
+  .hist-meta { flex: 1; min-width: 0; }
+  .hist-time { font-family: var(--font-mono); font-size: 11px; color: var(--text); font-weight: 500; }
+  .hist-sub  { font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .hist-del  { font-family: var(--font-mono); font-size: 11px; color: var(--subtle); background: none; border: none; cursor: pointer; padding: 2px 4px; flex-shrink: 0; }
+  .hist-del:hover { color: var(--red); }
+  .hist-empty { padding: 20px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--subtle); letter-spacing: 0.06em; }
+  .hist-header { padding: 8px 14px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); display: flex; justify-content: space-between; align-items: center; }
+  .snapshot-banner { background: #F5A62315; border-bottom: 1px solid #F5A62330; padding: 6px 24px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); display: none; letter-spacing: 0.04em; }
+  .snapshot-banner.visible { display: flex; align-items: center; gap: 12px; }
+
+  /* ── Checkbox column ── */
+  .th-check, .td-check { width: 28px; padding: 0 6px; text-align: center; }
+  .row-checkbox { width: 13px; height: 13px; cursor: pointer; accent-color: var(--accent); }
+
+  /* ── Transfer Scan Panel ── */
+  .scan-panel { position: fixed; bottom: 0; left: 0; right: 0; height: 85vh; background: var(--bg); border-top: 2px solid var(--accent); z-index: 200; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease; }
+  .scan-panel.open { transform: translateY(0); }
+  .scan-header { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .scan-title { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+  .scan-close { margin-left: auto; background: none; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; font-size: 12px; cursor: pointer; border-radius: 0; font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
+  .scan-close:hover { color: var(--text); border-color: var(--border-2); }
+
+  .scan-settings { display: flex; align-items: center; gap: 20px; padding: 10px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; flex-wrap: wrap; }
+  .scan-group { display: flex; align-items: center; gap: 8px; }
+  .scan-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); }
+  .depth-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 4px 10px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; text-transform: uppercase; }
+  .depth-btn.active { border-color: var(--accent); color: var(--accent); background: #F5A62310; }
+  .scan-input { font-family: var(--font-data); font-size: 12px; background: var(--bg); border: 1px solid var(--border-2); color: var(--text); padding: 5px 8px; outline: none; border-radius: 0; }
+  .scan-input:focus { border-color: var(--accent); }
+  .scan-input[type="date"] { width: 140px; color-scheme: dark; }
+  .btn-scan { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--accent); color: #000; border: none; padding: 7px 18px; cursor: pointer; border-radius: 0; }
+  .btn-scan:disabled { opacity: 0.4; cursor: not-allowed; }
+  .scan-wallet-badge { font-family: var(--font-data); font-size: 11px; color: var(--muted); }
+
+  .scan-body { flex: 1; overflow: auto; display: flex; flex-direction: column; }
+
+  /* Progress */
+  .scan-progress { padding: 20px 24px; display: none; }
+  .scan-progress.visible { display: block; }
+  .scan-log { font-family: var(--font-data); font-size: 11px; color: var(--muted); line-height: 1.8; max-height: 200px; overflow-y: auto; }
+  .scan-log-line { display: block; }
+  .scan-log-line.layer { color: var(--accent); font-weight: 500; }
+  .scan-log-line.done  { color: var(--mint); }
+
+  /* Graph view */
+  .scan-graph-area { flex: 1; display: none; flex-direction: column; }
+  .scan-graph-area.visible { display: flex; }
+
+  .scan-controls { display: flex; align-items: center; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; flex-wrap: wrap; }
+  .token-chip { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 10px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
+  .token-chip.active { border-color: var(--accent); color: var(--accent); background: #F5A62310; }
+  .view-toggle { display: flex; border: 1px solid var(--border); margin-left: auto; }
+  .view-btn { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
+  .view-btn.active { background: var(--accent); color: #000; }
+
+  /* Date range slider */
+  .scan-slider { padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; display: none; }
+  .scan-slider.visible { display: block; }
+  .slider-labels { display: flex; justify-content: space-between; font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-bottom: 8px; }
+  .slider-wrap { position: relative; height: 20px; margin: 0 8px; }
+  .slider-track { position: absolute; top: 8px; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; }
+  .slider-fill  { position: absolute; top: 8px; height: 4px; background: var(--accent); border-radius: 2px; }
+  .slider-range { position: absolute; width: 100%; height: 20px; top: 0; appearance: none; background: transparent; pointer-events: none; outline: none; }
+  .slider-range::-webkit-slider-thumb { appearance: none; pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: grab; position: relative; z-index: 2; }
+  .slider-current { display: flex; justify-content: center; gap: 8px; font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .slider-current span { color: var(--accent); font-weight: 500; }
+
+  /* Force graph */
+  .graph-svg-wrap { flex: 1; overflow: hidden; }
+  .graph-svg-wrap svg { width: 100%; height: 100%; }
+  .node circle { stroke-width: 1.5px; cursor: pointer; }
+  .node text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); pointer-events: none; }
+  .link { stroke-opacity: 0.6; fill: none; }
+  .link-arrow { fill: var(--muted); }
+  .graph-tooltip { position: absolute; background: var(--surface); border: 1px solid var(--border); padding: 8px 12px; font-family: var(--font-data); font-size: 11px; color: var(--text); pointer-events: none; z-index: 10; max-width: 220px; }
+
+  /* Net flow table */
+  .flow-table-wrap { flex: 1; overflow: auto; display: none; }
+  .flow-table-wrap.visible { display: block; }
+  .flow-table { width: 100%; border-collapse: collapse; min-width: 600px; font-family: var(--font-data); font-size: 12px; }
+  .flow-table th { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 12px; text-align: left; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .flow-table td { padding: 8px 12px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  .flow-table tr:hover td { background: var(--surface); }
+  .flow-pos { color: var(--mint); } .flow-neg { color: var(--red); } .flow-zero { color: var(--subtle); }
+  .layer-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; flex-shrink: 0; }
+
+  /* Scan stats bar */
+  .scan-stats { padding: 8px 24px; background: var(--surface); border-top: 1px solid var(--border); display: flex; gap: 20px; font-family: var(--font-data); font-size: 11px; color: var(--muted); flex-shrink: 0; }
+  .scan-stat-val { color: var(--text); font-weight: 500; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <span class="logo">token<span class="logo-sep">/</span>analyzer</span>
+    <span class="chain-badge">Solana</span>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+      <div style="position:relative">
+        <button onclick="toggleHistory()" id="btnHistory" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);background:none;border:1px solid var(--border);padding:4px 10px;cursor:pointer">History ▾</button>
+        <div id="historyPanel" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border-2);min-width:320px;max-height:340px;overflow-y:auto;z-index:300"></div>
+      </div>
+      <a href="/transfers" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:4px 10px;">Transfer →</a>
+    </div>
+  </header>
+
+  <div class="input-section">
+    <div class="input-row">
+      <div class="field">
+        <span class="field-label">Token Mint</span>
+        <input type="text" id="mintInput" placeholder="Solana token mint address…" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="field">
+        <span class="field-label">Top N</span>
+        <input type="number" id="topNInput" value="20" min="1" max="200" />
+      </div>
+      <button class="btn-primary" id="analyzeBtn" onclick="startAnalysis()">Analyze</button>
+      <button class="btn-secondary" id="cancelBtn" style="display:none" onclick="cancelAnalysis()">Cancel</button>
+    </div>
+  </div>
+
+  <div class="error-bar" id="errorBar"></div>
+  <div class="snapshot-banner" id="snapBanner">
+    <span id="snapBannerText">Viewing snapshot</span>
+    <button onclick="exitSnapshot()" style="font-family:var(--font-mono);font-size:10px;background:none;border:1px solid #F5A62350;color:var(--accent);padding:2px 8px;cursor:pointer;letter-spacing:0.06em;text-transform:uppercase">× Exit</button>
+  </div>
+
+  <div class="progress-section" id="progressSection">
+    <div class="spinner"></div>
+    <div class="progress-bar-wrap"><div class="progress-bar" id="progressBar"></div></div>
+    <span class="progress-text" id="progressText">Initializing…</span>
+  </div>
+
+  <div class="token-header" id="tokenHeader">
+    <img class="token-logo" id="tokenLogo" src="" alt="" onerror="this.style.display='none'" />
+    <div>
+      <div class="token-name" id="tokenName">—</div>
+      <div class="token-mint" id="tokenMintDisplay">—</div>
+    </div>
+    <div class="token-stats" id="tokenStats"></div>
+  </div>
+
+  <!-- Filter bar -->
+  <div class="filter-bar" id="filterBar">
+
+    <!-- Row 1: Logic mode + portfolio size + token concentration -->
+    <div class="filter-row">
+      <div class="filter-group">
+        <div class="logic-toggle">
+          <button class="logic-btn active" id="btnAnd" onclick="setLogic('AND')">AND</button>
+          <button class="logic-btn" id="btnOr" onclick="setLogic('OR')">OR</button>
+        </div>
+        <span class="filter-tag" id="logicDesc">all filters must match</span>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Portfolio USD</span>
+        <input type="number" class="filter-input" id="fMinPortfolio" placeholder="min" min="0" oninput="applyFilters()" />
+        <span class="filter-sep">–</span>
+        <input type="number" class="filter-input" id="fMaxPortfolio" placeholder="max" min="0" oninput="applyFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Token / Total %</span>
+        <input type="number" class="filter-input" id="fMinTokenTotal" placeholder="min" min="0" max="100" step="0.1" oninput="applyFilters()" />
+        <span class="filter-sep">–</span>
+        <input type="number" class="filter-input" id="fMaxTokenTotal" placeholder="max" min="0" max="100" step="0.1" oninput="applyFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Token / SPL %</span>
+        <input type="number" class="filter-input" id="fMinTokenSpl" placeholder="min" min="0" max="100" step="0.1" oninput="applyFilters()" />
+        <span class="filter-sep">–</span>
+        <input type="number" class="filter-input" id="fMaxTokenSpl" placeholder="max" min="0" max="100" step="0.1" oninput="applyFilters()" />
+      </div>
+    </div>
+
+    <!-- Row 2: Activity + co-holder + address search -->
+    <div class="filter-row">
+      <div class="filter-group">
+        <span class="filter-label">7d Tokens</span>
+        <input type="number" class="filter-input" id="fMin7d" placeholder="min" min="0" oninput="applyFilters()" />
+        <span class="filter-sep">–</span>
+        <input type="number" class="filter-input" id="fMax7d" placeholder="max" min="0" oninput="applyFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">90d Tokens</span>
+        <input type="number" class="filter-input" id="fMin90d" placeholder="min" min="0" oninput="applyFilters()" />
+        <span class="filter-sep">–</span>
+        <input type="number" class="filter-input" id="fMax90d" placeholder="max" min="0" oninput="applyFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Supply %</span>
+        <input type="number" class="filter-input" id="fMinSupplyPct" placeholder="min" min="0" step="0.01" oninput="applyFilters()" />
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Co-holds</span>
+        <div class="co-holds-wrap" style="width:180px">
+          <input type="text" class="filter-input" id="fCoHolds" placeholder="holds token…" style="width:100%" autocomplete="off" spellcheck="false"
+                 oninput="onCoHoldsInput()" onfocus="showCoDropdown()" />
+          <button class="co-holds-clear" id="coHoldsClear" onclick="clearCoHolds()" style="display:none">×</button>
+          <div class="co-dropdown hidden" id="coDropdown"></div>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Co-trades</span>
+        <div class="co-holds-wrap" style="width:180px">
+          <input type="text" class="filter-input" id="fCoTrades" placeholder="traded token…" style="width:100%" autocomplete="off" spellcheck="false"
+                 oninput="onCoTradesInput()" onfocus="showCoTradesDropdown()" />
+          <button class="co-holds-clear" id="coTradesClear" onclick="clearCoTrades()" style="display:none">×</button>
+          <div class="co-dropdown hidden" id="coTradesDropdown"></div>
+        </div>
+      </div>
+
+      <div class="filter-group">
+        <span class="filter-label">Search</span>
+        <input type="text" class="filter-input wide" id="fSearch" placeholder="address…" style="width:150px" oninput="applyFilters()" />
+      </div>
+
+      <button class="btn-secondary" style="margin-left:auto;padding:5px 12px;font-size:11px" onclick="clearFilters()">Clear</button>
+    </div>
+  </div>
+
+  <!-- Table -->
+  <main>
+    <div class="empty-state" id="emptyState">
+      <div class="empty-icon">//</div>
+      <div class="empty-title">No Analysis Yet</div>
+      <div class="empty-sub">Enter a token mint address and click Analyze to fetch the top holders and their on-chain profile.</div>
+    </div>
+
+    <table id="walletTable" style="display:none">
+      <thead>
+        <tr>
+          <th class="th-check"><input type="checkbox" id="selectAll" class="row-checkbox" title="Select all" onclick="toggleSelectAll()" /></th>
+          <th class="td-rank">#</th>
+          <th onclick="sortBy('address')">Address <span class="sa" id="s-address"></span></th>
+          <th class="td-num" onclick="sortBy('supplyPct')">% Supply <span class="sa" id="s-supplyPct">↓</span></th>
+          <th class="td-num" onclick="sortBy('portfolioTotalUsd')">Portfolio <span class="sa" id="s-portfolioTotalUsd"></span></th>
+          <th class="td-num" onclick="sortBy('tokenPctOfTotal')">Token / Total <span class="sa" id="s-tokenPctOfTotal"></span></th>
+          <th class="td-num" onclick="sortBy('tokenPctOfSpl')">Token / SPL <span class="sa" id="s-tokenPctOfSpl"></span></th>
+          <th class="td-num" onclick="sortBy('realizedPnl')">Realized PnL <span class="sa" id="s-realizedPnl"></span></th>
+          <th class="td-num" onclick="sortBy('uniqueTokens7d')">7d / 90d Tokens <span class="sa" id="s-uniqueTokens7d"></span></th>
+          <th class="td-num" onclick="sortBy('holdingTimestamp')">Holding Since <span class="sa" id="s-holdingTimestamp"></span></th>
+        </tr>
+      </thead>
+      <tbody id="walletBody"></tbody>
+    </table>
+  </main>
+
+  <!-- Footer -->
+  <div class="footer-bar" id="footerBar">
+    <div class="footer-stat">
+      <span class="footer-stat-label">Shown</span>
+      <span class="footer-stat-value" id="footerCount">0</span>
+    </div>
+    <div class="footer-sep"></div>
+    <div class="footer-stat">
+      <span class="footer-stat-label">Supply</span>
+      <span class="footer-supply-pct" id="footerSupplyPct">0.00%</span>
+    </div>
+    <div class="footer-sep"></div>
+    <div class="footer-stat">
+      <span class="footer-stat-label">Portfolio Sum</span>
+      <span class="footer-stat-value" id="footerPortfolio">—</span>
+    </div>
+    <div class="footer-sep"></div>
+    <div class="footer-stat">
+      <span class="footer-stat-label">USD Value Sum</span>
+      <span class="footer-stat-value" id="footerUsd">—</span>
+    </div>
+    <div class="footer-sep"></div>
+    <button class="btn-scan" id="btnTransferScan" onclick="openScanPanel()" style="display:none">
+      Transfer Scan <span id="scanBadge" style="background:#fff2;padding:1px 6px;margin-left:6px;font-size:10px">0</span>
+    </button>
+    <button class="btn-secondary" id="btnSaveSnap" style="padding:7px 14px;display:none" onclick="saveSnapshot()">Save Snapshot</button>
+    <button class="btn-secondary" style="padding:7px 14px" onclick="copyCSV()">Copy CSV</button>
+  </div>
+
+</div>
+
+<!-- Transfer Scan Panel -->
+<div class="scan-panel" id="scanPanel">
+  <div class="scan-header">
+    <span class="scan-title">Transfer Investigation</span>
+    <span class="scan-wallet-badge" id="scanWalletCount">0 wallets selected</span>
+    <button class="scan-close" onclick="closeScanPanel()">✕ Close</button>
+  </div>
+
+  <div class="scan-settings" id="scanSettings">
+    <div class="scan-group">
+      <span class="scan-label">Depth</span>
+      <button class="depth-btn active" data-d="1" onclick="setDepth(1)">1</button>
+      <button class="depth-btn"        data-d="2" onclick="setDepth(2)">2</button>
+      <button class="depth-btn"        data-d="3" onclick="setDepth(3)">3</button>
+    </div>
+    <div class="scan-group">
+      <span class="scan-label">Expand / layer</span>
+      <input type="number" class="scan-input" id="scanExpand" value="15" min="1" max="30" style="width:60px" />
+    </div>
+    <div class="scan-group">
+      <span class="scan-label">From</span>
+      <input type="date" class="scan-input" id="scanFrom" />
+    </div>
+    <div class="scan-group">
+      <span class="scan-label">To</span>
+      <input type="date" class="scan-input" id="scanTo" />
+    </div>
+    <button class="btn-scan" id="btnStartScan" onclick="startTransferScan()">Start Scan</button>
+  </div>
+
+  <div class="scan-body">
+    <!-- Progress log -->
+    <div class="scan-progress" id="scanProgress">
+      <div class="scan-log" id="scanLog"></div>
+    </div>
+
+    <!-- Graph area (after scan) -->
+    <div class="scan-graph-area" id="scanGraphArea">
+      <!-- Token filters + view toggle -->
+      <div class="scan-controls" id="scanControls">
+        <span class="scan-label">Token</span>
+        <div id="tokenChips" style="display:flex;gap:6px"></div>
+        <div class="view-toggle" style="margin-left:auto">
+          <button class="view-btn active" id="btnViewGraph" onclick="setView('graph')">Graph</button>
+          <button class="view-btn" id="btnViewTable" onclick="setView('table')">Net Flow</button>
+        </div>
+      </div>
+
+      <!-- Date range slider -->
+      <div class="scan-slider" id="scanSlider">
+        <div class="slider-labels">
+          <span id="sliderMinLabel">—</span>
+          <span style="color:var(--muted);font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em">TIME RANGE FILTER</span>
+          <span id="sliderMaxLabel">—</span>
+        </div>
+        <div class="slider-wrap" id="sliderWrap">
+          <div class="slider-track"></div>
+          <div class="slider-fill" id="sliderFill"></div>
+          <input type="range" class="slider-range" id="rangeStart" min="0" max="100" value="0" oninput="onRangeInput()" />
+          <input type="range" class="slider-range" id="rangeEnd"   min="0" max="100" value="100" oninput="onRangeInput()" />
+        </div>
+        <div class="slider-current">
+          <span id="sliderStartVal">—</span>
+          <span style="color:var(--subtle)">→</span>
+          <span id="sliderEndVal">—</span>
+        </div>
+      </div>
+
+      <!-- D3 force graph -->
+      <div class="graph-svg-wrap" id="graphSvgWrap" style="position:relative">
+        <svg id="graphSvg"></svg>
+        <div class="graph-tooltip" id="graphTooltip" style="display:none"></div>
+      </div>
+
+      <!-- Net flow table -->
+      <div class="flow-table-wrap" id="flowTableWrap">
+        <table class="flow-table">
+          <thead id="flowTableHead"></thead>
+          <tbody id="flowTableBody"></tbody>
+        </table>
+      </div>
+
+      <!-- Stats bar -->
+      <div class="scan-stats" id="scanStatsBar">
+        <span>Nodes <span class="scan-stat-val" id="statNodes">—</span></span>
+        <span>Edges <span class="scan-stat-val" id="statEdges">—</span></span>
+        <span>Transfers <span class="scan-stat-val" id="statTransfers">—</span></span>
+        <span>Wallets scanned <span class="scan-stat-val" id="statScanned">—</span></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let allWallets    = []
+let filteredRows  = []
+let tokenInfo     = null
+let tokenPrice    = null   // inferred USD price per token
+let sharedTokens       = []   // co-holds dropdown
+let sharedTradedTokens = []   // co-trades dropdown
+let coHoldsMint   = ''; let coHoldsSymbol = ''
+let coTradesMint  = ''; let coTradesSymbol = ''
+let sortKey       = 'supplyPct'
+let sortDir       = -1
+let logicMode     = 'AND'
+let currentSrc    = null
+
+// ── Analysis ──────────────────────────────────────────────────────────────────
+function startAnalysis() {
+  const mint = document.getElementById('mintInput').value.trim()
+  const topN = parseInt(document.getElementById('topNInput').value) || 20
+  if (!mint) { showError('Enter a token mint address.'); return }
+
+  cancelAnalysis()
+  allWallets = []; filteredRows = []; tokenInfo = null
+  hideError(); clearTableDisplay()
+  document.getElementById('progressSection').classList.add('visible')
+  document.getElementById('analyzeBtn').disabled = true
+  document.getElementById('cancelBtn').style.display = ''
+  setProgress(0, topN, 'Fetching holders…')
+
+  const es = new EventSource(`/api/analyze?mint=${encodeURIComponent(mint)}&topN=${topN}`)
+  currentSrc = es
+  es.onmessage = (e) => { try { handleEvent(JSON.parse(e.data)) } catch {} }
+  es.onerror   = () => {
+    // Show error regardless of readyState — server may close on error before client sees it
+    showError('Connection lost or server error. Check that the server is running.')
+    stopAnalysis()
+  }
+}
+
+function handleEvent(ev) {
+  if      (ev.type === 'progress') setProgress(ev.done, ev.total, `Analyzing ${shortAddr(ev.address)}…`)
+  else if (ev.type === 'wallet')   { allWallets.push(ev.wallet); applyFilters() }
+  else if (ev.type === 'complete') {
+    tokenInfo   = ev.token
+    tokenPrice  = ev.tokenPrice   // USD per token (inferred from wallets with OKX data)
+    sharedTokens       = ev.sharedTokens       ?? []
+    sharedTradedTokens = ev.sharedTradedTokens ?? []
+    // Apply estimated balanceUsd to wallets that OKX didn't index
+    if (tokenPrice != null && tokenPrice > 0) {
+      for (const w of allWallets) {
+        if (w.balanceUsd == null && w.balance > 0) {
+          const est = w.balance * tokenPrice
+          w.balanceUsd          = est
+          w.balanceUsdEstimated = true
+          if (w.portfolioTotalUsd != null && w.portfolioTotalUsd > 0)
+            w.tokenPctOfTotal = (est / w.portfolioTotalUsd) * 100
+          if (w.splTotalUsd != null && w.splTotalUsd > 0)
+            w.tokenPctOfSpl = (est / w.splTotalUsd) * 100
+        }
+      }
+    }
+    buildCoDropdown(); buildCoTradesDropdown()
+    renderTokenHeader(ev.token)
+    applyFilters()
+    setProgress(allWallets.length, allWallets.length, 'Done')
+    stopAnalysis()
+  }
+  else if (ev.type === 'error')    { showError(ev.message); stopAnalysis() }
+}
+
+function stopAnalysis() {
+  if (currentSrc) { currentSrc.close(); currentSrc = null }
+  document.getElementById('progressSection').classList.remove('visible')
+  document.getElementById('analyzeBtn').disabled = false
+  document.getElementById('cancelBtn').style.display = 'none'
+  if (allWallets.length) {
+    document.getElementById('filterBar').classList.add('visible')
+    document.getElementById('footerBar').classList.add('visible')
+  }
+}
+
+function cancelAnalysis() {
+  if (currentSrc) { currentSrc.close(); currentSrc = null }
+  document.getElementById('progressSection').classList.remove('visible')
+  document.getElementById('analyzeBtn').disabled = false
+  document.getElementById('cancelBtn').style.display = 'none'
+}
+
+// ── Filter logic ──────────────────────────────────────────────────────────────
+function setLogic(mode) {
+  logicMode = mode
+  document.getElementById('btnAnd').classList.toggle('active', mode === 'AND')
+  document.getElementById('btnOr').classList.toggle('active',  mode === 'OR')
+  document.getElementById('logicDesc').textContent = mode === 'AND' ? 'all filters must match' : 'any filter must match'
+  applyFilters()
+}
+
+function getVal(id) {
+  const v = document.getElementById(id).value.trim()
+  return v === '' ? null : parseFloat(v)
+}
+function getStr(id) {
+  return document.getElementById(id).value.trim().toLowerCase()
+}
+
+// Returns array of {test: fn, active: bool} — one entry per filter dimension
+function buildFilterConditions(w) {
+  const conds = []
+
+  const fMinPortfolio = getVal('fMinPortfolio'), fMaxPortfolio = getVal('fMaxPortfolio')
+  if (fMinPortfolio != null || fMaxPortfolio != null) {
+    const v = w.portfolioTotalUsd ?? null
+    const ok = v != null
+      && (fMinPortfolio == null || v >= fMinPortfolio)
+      && (fMaxPortfolio == null || v <= fMaxPortfolio)
+    conds.push(ok)
+  }
+
+  const fMinTT = getVal('fMinTokenTotal'), fMaxTT = getVal('fMaxTokenTotal')
+  if (fMinTT != null || fMaxTT != null) {
+    const v = w.tokenPctOfTotal ?? null
+    const ok = v != null
+      && (fMinTT == null || v >= fMinTT)
+      && (fMaxTT == null || v <= fMaxTT)
+    conds.push(ok)
+  }
+
+  const fMinTS = getVal('fMinTokenSpl'), fMaxTS = getVal('fMaxTokenSpl')
+  if (fMinTS != null || fMaxTS != null) {
+    const v = w.tokenPctOfSpl ?? null
+    const ok = v != null
+      && (fMinTS == null || v >= fMinTS)
+      && (fMaxTS == null || v <= fMaxTS)
+    conds.push(ok)
+  }
+
+  const fMin7 = getVal('fMin7d'), fMax7 = getVal('fMax7d')
+  if (fMin7 != null || fMax7 != null) {
+    const v = w.uniqueTokens7d ?? null
+    const ok = v != null
+      && (fMin7 == null || v >= fMin7)
+      && (fMax7 == null || v <= fMax7)
+    conds.push(ok)
+  }
+
+  const fMin9 = getVal('fMin90d'), fMax9 = getVal('fMax90d')
+  if (fMin9 != null || fMax9 != null) {
+    const v = w.uniqueTokens90d ?? null
+    const ok = v != null
+      && (fMin9 == null || v >= fMin9)
+      && (fMax9 == null || v <= fMax9)
+    conds.push(ok)
+  }
+
+  const fMinSup = getVal('fMinSupplyPct')
+  if (fMinSup != null) conds.push(w.supplyPct >= fMinSup)
+
+  if (coHoldsMint)  conds.push(w.allMints.includes(coHoldsMint))
+  if (coTradesMint) conds.push(w.tradedMints.includes(coTradesMint))
+
+  const search = getStr('fSearch')
+  if (search) conds.push(w.address.toLowerCase().includes(search))
+
+  return conds
+}
+
+function walletPassesFilters(w) {
+  const conds = buildFilterConditions(w)
+  if (!conds.length) return true
+  return logicMode === 'AND' ? conds.every(Boolean) : conds.some(Boolean)
+}
+
+function applyFilters() {
+  filteredRows = allWallets.filter(walletPassesFilters)
+  sortRows(); renderTable(); renderFooter()
+}
+
+function clearFilters() {
+  ['fMinPortfolio','fMaxPortfolio','fMinTokenTotal','fMaxTokenTotal',
+   'fMinTokenSpl','fMaxTokenSpl','fMin7d','fMax7d','fMin90d','fMax90d',
+   'fMinSupplyPct','fSearch'].forEach(id => document.getElementById(id).value = '')
+  clearCoHolds(); clearCoTrades()
+}
+
+// ── Co-holds dropdown ─────────────────────────────────────────────────────────
+function buildCoDropdown() {
+  const dd = document.getElementById('coDropdown')
+  if (!dd) return
+  dd.innerHTML = sharedTokens.map((t, i) => `
+    <div class="co-item" data-mint="${t.mint}" data-symbol="${t.symbol}" onclick="selectCoHolds(this)">
+      <span class="co-item-symbol">${t.symbol}</span>
+      <span class="co-item-mint">${shortAddr(t.mint)}</span>
+      <span class="co-item-count">${t.count}w</span>
+    </div>`).join('')
+}
+
+function showCoDropdown() {
+  const dd = document.getElementById('coDropdown')
+  if (!dd || !sharedTokens.length) return
+  dd.classList.remove('hidden')
+  document.addEventListener('click', hideCoDropdownOutside, { once: true })
+}
+
+function hideCoDropdownOutside(e) {
+  const wrap = document.querySelector('.co-holds-wrap')
+  if (wrap && !wrap.contains(e.target)) document.getElementById('coDropdown').classList.add('hidden')
+  else document.addEventListener('click', hideCoDropdownOutside, { once: true })
+}
+
+function onCoHoldsInput() {
+  const q = document.getElementById('fCoHolds').value.trim().toLowerCase()
+  const dd = document.getElementById('coDropdown')
+  if (!dd) return
+  const filtered = q
+    ? sharedTokens.filter(t => t.symbol.toLowerCase().includes(q) || t.mint.toLowerCase().includes(q))
+    : sharedTokens
+  dd.innerHTML = filtered.slice(0, 60).map(t =>
+    `<div class="co-item" data-mint="${t.mint}" data-symbol="${t.symbol}" onclick="selectCoHolds(this)">
+      <span class="co-item-symbol">${t.symbol}</span>
+      <span class="co-item-mint">${shortAddr(t.mint)}</span>
+      <span class="co-item-count">${t.count}w</span>
+    </div>`).join('')
+  dd.classList.toggle('hidden', !filtered.length)
+  // When typing a raw mint address directly, use it as filter immediately
+  if (!coHoldsMint) applyFilters()
+}
+
+function selectCoHolds(el) {
+  const mint = el.dataset.mint, symbol = el.dataset.symbol
+  coHoldsMint   = mint
+  coHoldsSymbol = symbol
+  document.getElementById('fCoHolds').value = symbol
+  document.getElementById('coDropdown').classList.add('hidden')
+  document.getElementById('coHoldsClear').style.display = ''
+  applyFilters()
+}
+
+function clearCoHolds() {
+  coHoldsMint = ''; coHoldsSymbol = ''
+  document.getElementById('fCoHolds').value = ''
+  document.getElementById('coHoldsClear').style.display = 'none'
+  document.getElementById('coDropdown').classList.add('hidden')
+  applyFilters()
+}
+
+// ── Co-trades dropdown (mirrors co-holds, uses sharedTradedTokens / tradedMints) ─
+function buildCoTradesDropdown() {
+  const dd = document.getElementById('coTradesDropdown'); if (!dd) return
+  dd.innerHTML = sharedTradedTokens.map(t =>
+    `<div class="co-item" data-mint="${t.mint}" data-symbol="${t.symbol}" onclick="selectCoTrades(this)">
+      <span class="co-item-symbol">${t.symbol}</span>
+      <span class="co-item-mint">${shortAddr(t.mint)}</span>
+      <span class="co-item-count">${t.count}w</span>
+    </div>`).join('')
+}
+
+function showCoTradesDropdown() {
+  const dd = document.getElementById('coTradesDropdown')
+  if (!dd || !sharedTradedTokens.length) return
+  dd.classList.remove('hidden')
+  document.addEventListener('click', hideCoTradesOut, { once: true })
+}
+function hideCoTradesOut(e) {
+  const wrap = document.querySelector('.co-holds-wrap:has(#fCoTrades)')
+  if (wrap && !wrap.contains(e.target)) document.getElementById('coTradesDropdown').classList.add('hidden')
+  else document.addEventListener('click', hideCoTradesOut, { once: true })
+}
+function onCoTradesInput() {
+  const q  = document.getElementById('fCoTrades').value.trim().toLowerCase()
+  const dd = document.getElementById('coTradesDropdown'); if (!dd) return
+  const filtered = q
+    ? sharedTradedTokens.filter(t => t.symbol.toLowerCase().includes(q) || t.mint.toLowerCase().includes(q))
+    : sharedTradedTokens
+  dd.innerHTML = filtered.slice(0, 60).map(t =>
+    `<div class="co-item" data-mint="${t.mint}" data-symbol="${t.symbol}" onclick="selectCoTrades(this)">
+      <span class="co-item-symbol">${t.symbol}</span>
+      <span class="co-item-mint">${shortAddr(t.mint)}</span>
+      <span class="co-item-count">${t.count}w</span>
+    </div>`).join('')
+  dd.classList.toggle('hidden', !filtered.length)
+  if (!coTradesMint) applyFilters()
+}
+function selectCoTrades(el) {
+  const mint = el.dataset.mint, symbol = el.dataset.symbol
+  coTradesMint = mint; coTradesSymbol = symbol
+  document.getElementById('fCoTrades').value = symbol
+  document.getElementById('coTradesDropdown').classList.add('hidden')
+  document.getElementById('coTradesClear').style.display = ''
+  applyFilters()
+}
+function clearCoTrades() {
+  coTradesMint = ''; coTradesSymbol = ''
+  document.getElementById('fCoTrades').value = ''
+  document.getElementById('coTradesClear').style.display = 'none'
+  document.getElementById('coTradesDropdown').classList.add('hidden')
+  applyFilters()
+}
+
+// ── Sort ──────────────────────────────────────────────────────────────────────
+function sortRows() {
+  filteredRows.sort((a, b) => {
+    const av = a[sortKey] ?? (sortDir === -1 ? -Infinity : Infinity)
+    const bv = b[sortKey] ?? (sortDir === -1 ? -Infinity : Infinity)
+    if (typeof av === 'string') return av.localeCompare(bv) * sortDir
+    return (av - bv) * sortDir
+  })
+}
+
+function sortBy(key) {
+  if (sortKey === key) sortDir *= -1
+  else { sortKey = key; sortDir = -1 }
+  document.querySelectorAll('.sa').forEach(el => el.textContent = '')
+  const arrow = document.getElementById(`s-${key}`)
+  if (arrow) arrow.textContent = sortDir === -1 ? '↓' : '↑'
+  sortRows(); renderTable()
+}
+
+// ── Render ────────────────────────────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('walletBody')
+  const table = document.getElementById('walletTable')
+  const empty = document.getElementById('emptyState')
+
+  if (!filteredRows.length) {
+    table.style.display = 'none'; empty.style.display = ''
+    empty.querySelector('.empty-title').textContent = allWallets.length ? 'No Match' : 'No Analysis Yet'
+    empty.querySelector('.empty-sub').textContent   = allWallets.length ? 'Adjust the filters.' : 'Enter a token mint address and click Analyze.'
+    return
+  }
+  table.style.display = ''; empty.style.display = 'none'
+
+  tbody.innerHTML = filteredRows.map(w => {
+    const okxUrl = `https://web3.okx.com/portfolio/${w.address}/analysis?chainIndex=501`
+
+    // % supply with mini bar
+    const supFmt   = w.supplyPct.toFixed(4) + '%'
+    const barWidth = Math.min(w.supplyPct * 5, 100).toFixed(1)  // scale: 20% supply = full bar
+
+    // Portfolio USD
+    const portHtml = w.portfolioTotalUsd != null
+      ? `$${fmtNum(w.portfolioTotalUsd, 0)}`
+      : '<span class="td-null">—</span>'
+
+    // Token / Total % — with progress bar (100% = fills completely)
+    const ttPct  = w.tokenPctOfTotal
+    const ttBar  = ttPct != null ? Math.min(ttPct, 100).toFixed(1) : 0
+    const ttUsd  = w.balanceUsd != null ? (w.balanceUsdEstimated ? '~$' : '$') + fmtNum(w.balanceUsd, 0) : ''
+    const ttHtml = ttPct != null
+      ? `${ttPct.toFixed(2)}%<div class="pct-bar"><div class="pct-fill pct-fill-blue" style="width:${ttBar}%"></div></div><div class="td-sub">${ttUsd}</div>`
+      : '<span class="td-null">—</span>'
+
+    // Token / SPL % — with progress bar
+    const tsPct  = w.tokenPctOfSpl
+    const tsBar  = tsPct != null ? Math.min(tsPct, 100).toFixed(1) : 0
+    const tsSub  = w.splTotalUsd != null ? 'SPL $' + fmtNum(w.splTotalUsd, 0) : ''
+    const tsHtml = tsPct != null
+      ? `${tsPct.toFixed(2)}%<div class="pct-bar"><div class="pct-fill pct-fill-mint" style="width:${tsBar}%"></div></div><div class="td-sub">${tsSub}</div>`
+      : '<span class="td-null">—</span>'
+
+    // Realized PnL
+    const rpnl = w.realizedPnl
+    const rpnlHtml = rpnl != null
+      ? `<span class="${rpnl > 0.005 ? 'pnl-pos' : rpnl < -0.005 ? 'pnl-neg' : 'pnl-zero'}">${rpnl >= 0 ? '+' : '-'}$${fmtNum(Math.abs(rpnl), 0)}</span><div class="td-sub">${w.realizedPnlPct != null ? (w.realizedPnlPct >= 0 ? '+' : '') + w.realizedPnlPct.toFixed(1) + '%' : ''}</div>`
+      : '<span class="td-null">—</span>'
+
+    // 7d / 90d tokens
+    const actHtml = w.uniqueTokens7d != null || w.uniqueTokens90d != null
+      ? `${w.uniqueTokens7d ?? '?'} / ${w.uniqueTokens90d ?? '?'}<div class="td-sub">${w.totalTxBuy != null ? w.totalTxBuy + 'B ' + w.totalTxSell + 'S' : ''}</div>`
+      : '<span class="td-null">—</span>'
+
+    // Holding since
+    const since = w.holdingTimestamp ? formatDate(w.holdingTimestamp) : '—'
+    const holdPct = w.holdAmountPctForMaxHold != null ? `<div class="td-sub">${w.holdAmountPctForMaxHold.toFixed(0)}% of max</div>` : ''
+
+    return `<tr>
+      <td class="td-check"><input type="checkbox" class="row-checkbox" data-addr="${w.address}" ${selectedForScan.has(w.address) ? 'checked' : ''} onclick="toggleWalletScan('${w.address}', this)" /></td>
+      <td class="td-rank">${w.rank}</td>
+      <td class="td-address"><div class="addr-wrap">
+        <a class="addr-link" href="${okxUrl}" target="_blank">${shortAddr(w.address)}</a>
+        ${acctBadge(w.accountType)}
+        <button class="copy-btn" onclick="copyText('${w.address}')" title="Copy full address">⊙</button>
+      </div><div class="td-sub">${supFmt}</div></td>
+      <td class="td-num">${supFmt}<div class="pct-bar"><div class="pct-fill pct-fill-amber" style="width:${barWidth}%"></div></div><div class="td-sub">${w.balanceUsd != null ? (w.balanceUsdEstimated ? '~$' : '$') + fmtNum(w.balanceUsd, 0) : ''}</div></td>
+      <td class="td-num">${portHtml}</td>
+      <td class="td-num">${ttHtml}</td>
+      <td class="td-num">${tsHtml}</td>
+      <td class="td-num">${rpnlHtml}</td>
+      <td class="td-num">${actHtml}</td>
+      <td class="td-num">${since}${holdPct}</td>
+    </tr>`
+  }).join('')
+}
+
+function renderFooter() {
+  const count    = filteredRows.length
+  const totalPct = filteredRows.reduce((s, w) => s + w.supplyPct, 0)
+  const totalUsd = filteredRows.reduce((s, w) => s + (w.balanceUsd ?? 0), 0)
+  const totalPort = filteredRows.reduce((s, w) => s + (w.portfolioTotalUsd ?? 0), 0)
+  const hasUsd  = filteredRows.some(w => w.balanceUsd != null)
+  const hasPort = filteredRows.some(w => w.portfolioTotalUsd != null)
+
+  document.getElementById('footerCount').textContent    = count
+  document.getElementById('footerSupplyPct').textContent = totalPct.toFixed(4) + '%'
+  document.getElementById('footerUsd').textContent       = hasUsd  ? '$' + fmtNum(totalUsd, 0) : '—'
+  document.getElementById('footerPortfolio').textContent = hasPort ? '$' + fmtNum(totalPort, 0) : '—'
+}
+
+function renderTokenHeader(token) {
+  document.getElementById('tokenHeader').classList.add('visible')
+  const logoEl = document.getElementById('tokenLogo')
+  if (token.logoUrl) { logoEl.src = token.logoUrl; logoEl.style.display = '' }
+  else logoEl.style.display = 'none'
+  document.getElementById('tokenName').textContent        = `${token.symbol} — ${token.name}`
+  document.getElementById('tokenMintDisplay').textContent = token.mint
+  document.getElementById('tokenStats').innerHTML = `
+    <div class="stat"><span class="stat-label">Total Supply</span><span class="stat-value">${fmtNum(token.supply, 0)}</span></div>
+    <div class="stat"><span class="stat-label">Decimals</span><span class="stat-value">${token.decimals}</span></div>
+    <div class="stat"><span class="stat-label">Holders</span><span class="stat-value">${allWallets.length}</span></div>
+  `
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function clearTableDisplay() {
+  allWallets = []; filteredRows = []; tokenInfo = null; tokenPrice = null
+  sharedTokens = []; sharedTradedTokens = []; selectedForScan.clear()
+  coHoldsMint = ''; coHoldsSymbol = ''; coTradesMint = ''; coTradesSymbol = ''
+  document.getElementById('walletTable').style.display  = 'none'
+  document.getElementById('emptyState').style.display   = ''
+  document.getElementById('filterBar').classList.remove('visible')
+  document.getElementById('footerBar').classList.remove('visible')
+  document.getElementById('tokenHeader').classList.remove('visible')
+  document.getElementById('walletBody').innerHTML = ''
+  const dd = document.getElementById('coDropdown'); if (dd) dd.innerHTML = ''
+  const ci = document.getElementById('fCoHolds');   if (ci) ci.value = ''
+  const cb = document.getElementById('coHoldsClear'); if (cb) cb.style.display = 'none'
+}
+
+function setProgress(done, total, msg) {
+  document.getElementById('progressBar').style.width    = total > 0 ? (done / total * 100) + '%' : '0%'
+  document.getElementById('progressText').textContent   = `${msg} (${done}/${total})`
+}
+
+function showError(msg) { const el = document.getElementById('errorBar'); el.textContent = '⚠ ' + msg; el.classList.add('visible') }
+function hideError()    { document.getElementById('errorBar').classList.remove('visible') }
+function shortAddr(a)   { return !a ? '—' : a.slice(0,6) + '…' + a.slice(-4) }
+function copyText(t)    { navigator.clipboard.writeText(t).catch(() => {}) }
+
+function acctBadge(type) {
+  const labels = {
+    program:       'PROG',
+    bonding_curve: 'BONDING',
+    lp:            'LP POOL',
+    pda:           'PDA',
+  }
+  if (!type || type === 'wallet' || !labels[type]) return ''
+  return `<span class="acct-badge badge-${type}">${labels[type]}</span>`
+}
+
+function fmtNum(n, decimals = 2) {
+  if (n == null || !Number.isFinite(n)) return '—'
+  if (Math.abs(n) >= 1e9) return (n / 1e9).toFixed(2) + 'B'
+  if (Math.abs(n) >= 1e6) return (n / 1e6).toFixed(2) + 'M'
+  if (Math.abs(n) >= 1e3) return (n / 1e3).toFixed(2) + 'K'
+  return n.toFixed(decimals)
+}
+
+function formatDate(ts) {
+  if (!ts) return '—'
+  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+}
+
+function copyCSV() {
+  const headers = ['rank','address','supplyPct','portfolioTotalUsd','splTotalUsd','tokenPctOfTotal','tokenPctOfSpl','balanceUsd','realizedPnl','unrealizedPnl','totalTxBuy','totalTxSell','uniqueTokens7d','uniqueTokens90d','holdingTimestamp','holdAmountPctForMaxHold']
+  const rows = filteredRows.map(w => headers.map(k => { const v = w[k]; if (v == null) return ''; if (typeof v === 'string' && v.includes(',')) return `"${v}"`; return v }).join(','))
+  navigator.clipboard.writeText([headers.join(','), ...rows].join('\n')).catch(() => {})
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.activeElement === document.getElementById('mintInput')) startAnalysis()
+})
+
+// ── Show Save Snapshot button when analysis completes ──────────────────────
+const _origComplete = handleEvent
+window.handleEvent = function(ev) {
+  _origComplete(ev)
+  if (ev.type === 'complete') {
+    document.getElementById('btnSaveSnap').style.display = ''
+  }
+}
+
+// ── Snapshot: save ─────────────────────────────────────────────────────────
+async function saveSnapshot() {
+  if (!allWallets.length || !tokenInfo) return
+  const note = prompt('Optional label (leave blank to skip):', '')
+  if (note === null) return   // cancelled
+
+  const body = { mint: tokenInfo.mint, token: tokenInfo, wallets: allWallets, analyzedAt: Date.now(), note: note || undefined }
+  const res  = await fetch('/api/snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.ok) {
+    const btn = document.getElementById('btnSaveSnap')
+    btn.textContent = '✓ Saved'
+    setTimeout(() => btn.textContent = 'Save Snapshot', 2000)
+  }
+}
+
+// ── History panel ──────────────────────────────────────────────────────────
+let historyOpen = false
+let currentSnapshotFile = null
+
+function toggleHistory() {
+  historyOpen = !historyOpen
+  const panel = document.getElementById('historyPanel')
+  if (historyOpen) { loadHistory(); panel.style.display = '' }
+  else panel.style.display = 'none'
+}
+
+// Close history panel when clicking outside
+document.addEventListener('click', e => {
+  if (historyOpen) {
+    const panel = document.getElementById('historyPanel')
+    const btn   = document.getElementById('btnHistory')
+    if (!panel.contains(e.target) && !btn.contains(e.target)) {
+      panel.style.display = 'none'
+      historyOpen = false
+    }
+  }
+})
+
+async function loadHistory() {
+  const panel = document.getElementById('historyPanel')
+  const mint  = tokenInfo?.mint ?? document.getElementById('mintInput').value.trim()
+
+  let snapshots = []
+  if (mint) {
+    const res = await fetch(`/api/snapshots?mint=${encodeURIComponent(mint)}`)
+    snapshots = await res.json()
+  } else {
+    const res = await fetch('/api/snapshots')
+    snapshots = await res.json()
+  }
+
+  if (!snapshots.length) {
+    panel.innerHTML = `<div class="hist-empty">NO SNAPSHOTS YET${mint ? '<br>for this token' : ''}</div>`
+    return
+  }
+
+  const mintLabel = mint ? `${snapshots[0]?.tokenSymbol ?? mint.slice(0,8)} — ${snapshots.length} snapshot${snapshots.length !== 1 ? 's' : ''}` : `All tokens — ${snapshots.length} snapshots`
+  panel.innerHTML = `<div class="hist-header"><span>${mintLabel}</span></div>` +
+    snapshots.map(s => {
+      const dt  = new Date(s.analyzedAt)
+      const dtStr = dt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+      const active = s.filename === currentSnapshotFile ? ' active' : ''
+      return `<div class="hist-item${active}" onclick="loadSnapshot('${s.mint}','${s.filename}')">
+        <div class="hist-meta">
+          <div class="hist-time">${dtStr}</div>
+          <div class="hist-sub">${s.tokenSymbol} · ${s.walletCount} wallets${s.note ? ` · ${s.note}` : ''}</div>
+        </div>
+        <button class="hist-del" onclick="deleteSnap(event,'${s.mint}','${s.filename}')" title="Delete">✕</button>
+      </div>`
+    }).join('')
+}
+
+async function loadSnapshot(mint, filename) {
+  const res  = await fetch(`/api/snapshots/${encodeURIComponent(mint)}/${encodeURIComponent(filename)}`)
+  if (!res.ok) return
+  const snap = await res.json()
+
+  // Replace current state with snapshot data
+  allWallets   = snap.wallets
+  filteredRows = snap.wallets
+  tokenInfo    = snap.token
+  currentSnapshotFile = filename
+
+  // Show banner
+  const dt = new Date(snap.analyzedAt)
+  const dtStr = dt.toLocaleString('en-US', { month: 'short', day: 'numeric', year: '2-digit', hour: '2-digit', minute: '2-digit' })
+  document.getElementById('snapBannerText').textContent = `Viewing snapshot from ${dtStr} · ${snap.wallets.length} wallets`
+  document.getElementById('snapBanner').classList.add('visible')
+
+  // Update inputs to match snapshot
+  document.getElementById('mintInput').value  = snap.token.mint
+  document.getElementById('topNInput').value  = snap.wallets.length
+
+  renderTokenHeader(snap.token)
+  document.getElementById('filterBar').classList.add('visible')
+  document.getElementById('footerBar').classList.add('visible')
+  document.getElementById('btnSaveSnap').style.display = 'none'
+  applyFilters()
+
+  // Close history panel
+  document.getElementById('historyPanel').style.display = 'none'
+  historyOpen = false
+}
+
+function exitSnapshot() {
+  currentSnapshotFile = null
+  document.getElementById('snapBanner').classList.remove('visible')
+  // Don't clear the data — just remove the snapshot indicator
+}
+
+async function deleteSnap(e, mint, filename) {
+  e.stopPropagation()
+  if (!confirm('Delete this snapshot?')) return
+  await fetch(`/api/snapshots/${encodeURIComponent(mint)}/${encodeURIComponent(filename)}`, { method: 'DELETE' })
+  if (filename === currentSnapshotFile) exitSnapshot()
+  loadHistory()   // refresh list
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// TRANSFER SCAN FEATURE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ── Wallet selection state ────────────────────────────────────────────────────
+let selectedForScan = new Set()
+
+function toggleWalletScan(addr, cb) {
+  if (cb.checked) selectedForScan.add(addr)
+  else selectedForScan.delete(addr)
+  updateScanBadge()
+}
+
+function toggleSelectAll() {
+  const cb = document.getElementById('selectAll')
+  if (cb.checked) filteredRows.forEach(w => selectedForScan.add(w.address))
+  else filteredRows.forEach(w => selectedForScan.delete(w.address))
+  renderTable()
+  updateScanBadge()
+}
+
+function updateScanBadge() {
+  const n = selectedForScan.size
+  document.getElementById('scanBadge').textContent = n
+  document.getElementById('btnTransferScan').style.display = allWallets.length ? '' : 'none'
+  const wc = document.getElementById('scanWalletCount')
+  if (wc) wc.textContent = `${n} wallet${n !== 1 ? 's' : ''} selected`
+}
+
+// Show scan button when analysis finishes
+const _origStopAnalysis = stopAnalysis
+window.stopAnalysis = function() { _origStopAnalysis(); updateScanBadge() }
+
+// ── Scan panel state ──────────────────────────────────────────────────────────
+let scanDepth   = 1
+let scanGraph   = null      // full TransferGraph from server
+let scanSrc     = null      // EventSource
+let sliderMin   = 0         // unix seconds (full range)
+let sliderMax   = 0
+let filterMints = new Set() // active token filter (empty = all)
+let currentView = 'graph'
+
+// Init default date range to last 7 days
+;(function initDates() {
+  const to   = new Date()
+  const from = new Date(to - 7 * 86400_000)
+  const fmt  = d => d.toISOString().slice(0, 10)
+  const f = document.getElementById('scanFrom'), t = document.getElementById('scanTo')
+  if (f) f.value = fmt(from)
+  if (t) t.value = fmt(to)
+})()
+
+// ── Panel open/close ──────────────────────────────────────────────────────────
+function openScanPanel() {
+  document.getElementById('scanPanel').classList.add('open')
+  updateScanBadge()
+}
+function closeScanPanel() {
+  document.getElementById('scanPanel').classList.remove('open')
+  if (scanSrc) { scanSrc.close(); scanSrc = null }
+}
+
+function setDepth(d) {
+  scanDepth = d
+  document.querySelectorAll('.depth-btn').forEach(b => b.classList.toggle('active', +b.dataset.d === d))
+}
+
+// ── Scan execution ────────────────────────────────────────────────────────────
+function startTransferScan() {
+  if (!selectedForScan.size) { alert('Select at least one wallet first.'); return }
+  if (scanSrc) { scanSrc.close(); scanSrc = null }
+
+  scanGraph = null
+  document.getElementById('scanProgress').classList.add('visible')
+  document.getElementById('scanGraphArea').classList.remove('visible')
+  document.getElementById('scanLog').innerHTML = ''
+  document.getElementById('btnStartScan').disabled = true
+
+  const wallets = [...selectedForScan].join(',')
+  const from    = Math.floor(new Date(document.getElementById('scanFrom').value).getTime() / 1000)
+  const to      = Math.floor(new Date(document.getElementById('scanTo').value).getTime() / 1000) + 86399
+  const expand  = parseInt(document.getElementById('scanExpand').value) || 15
+
+  const url = `/api/transfers?wallets=${encodeURIComponent(wallets)}&from=${from}&to=${to}&depth=${scanDepth}&expand=${expand}`
+  const es  = new EventSource(url)
+  scanSrc   = es
+
+  es.onmessage = e => {
+    try { handleScanEvent(JSON.parse(e.data)) } catch {}
+  }
+  es.onerror = () => {
+    appendLog('⚠ Connection error or scan complete.', 'done')
+    document.getElementById('btnStartScan').disabled = false
+    es.close(); scanSrc = null
+  }
+}
+
+function appendLog(msg, cls = '') {
+  const log  = document.getElementById('scanLog')
+  const line = document.createElement('span')
+  line.className = `scan-log-line ${cls}`
+  line.textContent = msg
+  log.appendChild(line)
+  log.appendChild(document.createElement('br'))
+  log.scrollTop = log.scrollHeight
+}
+
+function handleScanEvent(ev) {
+  if (ev.type === 'scan_layer') {
+    appendLog(`▶ Layer ${ev.layer}: scanning ${ev.total} wallets…`, 'layer')
+  } else if (ev.type === 'scan_wallet') {
+    if (ev.done === ev.total) appendLog(`  ✓ Layer ${ev.layer} complete (${ev.total} wallets)`, 'done')
+  } else if (ev.type === 'scan_expand') {
+    appendLog(`  + Discovered ${ev.discovered} addresses → expanding top ${ev.newCount} for layer ${ev.layer + 1}`)
+  } else if (ev.type === 'scan_graph') {
+    scanGraph = ev.graph
+    appendLog(`✓ Scan complete: ${ev.graph.nodes.length} nodes, ${ev.graph.transfers.length} transfers.`, 'done')
+    document.getElementById('btnStartScan').disabled = false
+    document.getElementById('scanProgress').classList.remove('visible')
+    initGraphView()
+  } else if (ev.type === 'scan_error') {
+    appendLog(`⚠ Error: ${ev.message}`, 'done')
+    document.getElementById('btnStartScan').disabled = false
+  }
+}
+
+// ── Graph initialization ──────────────────────────────────────────────────────
+function initGraphView() {
+  const g = scanGraph
+  if (!g) return
+
+  // Time range
+  sliderMin = g.timeRange.min; sliderMax = g.timeRange.max
+  document.getElementById('sliderMinLabel').textContent = fmtDate(sliderMin * 1000)
+  document.getElementById('sliderMaxLabel').textContent = fmtDate(sliderMax * 1000)
+  document.getElementById('rangeStart').value = '0'
+  document.getElementById('rangeEnd').value   = '100'
+  updateSliderUI()
+
+  // Build token chip list (unique mints from edges, sorted by total volume)
+  const mintVol = new Map()
+  for (const e of g.edges) mintVol.set(e.mint, (mintVol.get(e.mint) ?? 0) + e.amount)
+  const topMints = [...mintVol.entries()].sort((a,b) => b[1]-a[1]).slice(0, 10).map(([m]) => m)
+
+  const chips = document.getElementById('tokenChips')
+  chips.innerHTML = ''
+  for (const mint of topMints) {
+    const sym = g.edges.find(e => e.mint === mint)?.symbol ?? mint.slice(0,6)
+    const chip = document.createElement('button')
+    chip.className = 'token-chip active'
+    chip.dataset.mint = mint
+    chip.textContent  = sym
+    chip.onclick = () => { chip.classList.toggle('active'); filterMints = new Set([...document.querySelectorAll('.token-chip.active')].map(c => c.dataset.mint)); renderGraph() }
+    chips.appendChild(chip)
+  }
+  filterMints = new Set(topMints)
+
+  document.getElementById('scanGraphArea').classList.add('visible')
+  document.getElementById('scanSlider').classList.add('visible')
+
+  // Stats
+  document.getElementById('statNodes').textContent     = g.nodes.length
+  document.getElementById('statEdges').textContent     = g.edges.length
+  document.getElementById('statTransfers').textContent = g.transfers.length
+  document.getElementById('statScanned').textContent   = g.nodes.filter(n => n.layer <= scanDepth).length
+
+  setView('graph')
+}
+
+// ── Date slider ───────────────────────────────────────────────────────────────
+function onRangeInput() {
+  const s = document.getElementById('rangeStart')
+  const e = document.getElementById('rangeEnd')
+  // Prevent handles from crossing
+  if (+s.value > +e.value) s.value = e.value
+  if (+e.value < +s.value) e.value = s.value
+  updateSliderUI()
+  renderGraph()
+}
+
+function updateSliderUI() {
+  const sv = +document.getElementById('rangeStart').value
+  const ev = +document.getElementById('rangeEnd').value
+  document.getElementById('sliderFill').style.left  = sv + '%'
+  document.getElementById('sliderFill').style.width = (ev - sv) + '%'
+  const tsStart = sliderMin + (sliderMax - sliderMin) * sv / 100
+  const tsEnd   = sliderMin + (sliderMax - sliderMin) * ev / 100
+  document.getElementById('sliderStartVal').textContent = fmtDate(tsStart * 1000)
+  document.getElementById('sliderEndVal').textContent   = fmtDate(tsEnd   * 1000)
+}
+
+function getSliderRange() {
+  const sv = +document.getElementById('rangeStart').value
+  const ev = +document.getElementById('rangeEnd').value
+  return {
+    from: sliderMin + (sliderMax - sliderMin) * sv / 100,
+    to:   sliderMin + (sliderMax - sliderMin) * ev / 100,
+  }
+}
+
+// Filter edges by current slider range + selected token chips
+function getFilteredEdges() {
+  if (!scanGraph) return []
+  const { from, to } = getSliderRange()
+  // Re-aggregate edges from raw transfers within the time window
+  const edgeMap = new Map()
+  for (const t of scanGraph.transfers) {
+    if (t.timestamp < from || t.timestamp > to) continue
+    if (filterMints.size && !filterMints.has(t.mint)) continue
+    const [a, b, sign] = t.from < t.to ? [t.from, t.to, 1] : [t.to, t.from, -1]
+    const key = `${a}|${b}|${t.mint}`
+    const ex  = edgeMap.get(key)
+    if (ex) { ex.flow += t.amount * sign; ex.txCount++ }
+    else edgeMap.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, txCount: 1 })
+  }
+  return [...edgeMap.values()].map(e => ({
+    source: e.flow >= 0 ? e.a : e.b,
+    target: e.flow >= 0 ? e.b : e.a,
+    mint: e.mint, symbol: e.symbol,
+    amount: Math.abs(e.flow), txCount: e.txCount,
+  })).filter(e => e.amount > 0)
+}
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+function setView(v) {
+  currentView = v
+  document.getElementById('btnViewGraph').classList.toggle('active', v === 'graph')
+  document.getElementById('btnViewTable').classList.toggle('active', v === 'table')
+  document.getElementById('graphSvgWrap').style.display    = v === 'graph' ? '' : 'none'
+  document.getElementById('flowTableWrap').classList.toggle('visible', v === 'table')
+  renderGraph()
+}
+
+// ── D3 Force Graph ────────────────────────────────────────────────────────────
+const LAYER_COLORS = ['#F5A623', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
+const TOKEN_COLORS = { 'SOL': '#F5A623', 'USDC': '#6B9BFF', 'USDT': '#5DD49A' }
+
+function tokenColor(symbol) {
+  return TOKEN_COLORS[symbol] ?? '#8C8C8A'
+}
+
+function renderGraph() {
+  if (currentView === 'table') { renderFlowTable(); return }
+  if (!scanGraph) return
+
+  const wrap  = document.getElementById('graphSvgWrap')
+  const W     = wrap.clientWidth  || 800
+  const H     = wrap.clientHeight || 500
+  const edges = getFilteredEdges()
+
+  // Nodes: only include those that appear in filtered edges
+  const activeAddrs = new Set()
+  for (const e of edges) { activeAddrs.add(e.source); activeAddrs.add(e.target) }
+  // Always include seed nodes
+  for (const n of scanGraph.nodes) { if (n.isSeed) activeAddrs.add(n.address) }
+
+  const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
+  const nodes   = [...activeAddrs].map(addr => {
+    const n = nodeMap.get(addr) ?? { address: addr, label: addr.slice(0,6)+'…'+addr.slice(-4), layer: 99, isSeed: false }
+    return { id: addr, label: n.label, layer: n.layer, isSeed: n.isSeed, _x: undefined, _y: undefined }
+  })
+
+  const svg = d3.select('#graphSvg').attr('width', W).attr('height', H)
+  svg.selectAll('*').remove()
+
+  // Arrow markers per token color
+  const defs = svg.append('defs')
+  const tokenColors = [...new Set(edges.map(e => tokenColor(e.symbol)))]
+  for (const col of tokenColors) {
+    const cid = col.replace('#','')
+    defs.append('marker').attr('id', `arrow-${cid}`).attr('viewBox','0 -5 10 10').attr('refX',16).attr('refY',0).attr('markerWidth',6).attr('markerHeight',6).attr('orient','auto')
+      .append('path').attr('d','M0,-5L10,0L0,5').attr('fill', col).attr('fill-opacity', 0.7)
+  }
+
+  const g = svg.append('g')
+  svg.call(d3.zoom().scaleExtent([0.2, 4]).on('zoom', e => g.attr('transform', e.transform)))
+
+  // Max amount for edge scaling
+  const maxAmt = edges.length ? Math.max(...edges.map(e => e.amount)) : 1
+
+  const linkSel = g.append('g').selectAll('path').data(edges).enter().append('path')
+    .attr('class', 'link')
+    .attr('stroke', e => tokenColor(e.symbol))
+    .attr('stroke-width', e => Math.max(0.5, Math.min(6, (e.amount / maxAmt) * 6)))
+    .attr('marker-end', e => `url(#arrow-${tokenColor(e.symbol).replace('#','')})`)
+
+  const tooltip = document.getElementById('graphTooltip')
+  const nodeSel = g.append('g').selectAll('g').data(nodes).enter().append('g').attr('class', 'node')
+    .call(d3.drag().on('start', (ev, d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx = d.x; d.fy = d.y })
+                   .on('drag',  (ev, d) => { d.fx = ev.x; d.fy = ev.y })
+                   .on('end',   (ev, d) => { if (!ev.active) sim.alphaTarget(0); d.fx = null; d.fy = null }))
+    .on('mouseover', (ev, d) => {
+      const inEdges  = edges.filter(e => e.target === d.id)
+      const outEdges = edges.filter(e => e.source === d.id)
+      const inFlow   = inEdges.reduce((s,e) => s + e.amount, 0)
+      const outFlow  = outEdges.reduce((s,e) => s + e.amount, 0)
+      tooltip.style.display = 'block'
+      tooltip.style.left    = (ev.offsetX + 12) + 'px'
+      tooltip.style.top     = (ev.offsetY - 10) + 'px'
+      tooltip.innerHTML = `<b>${d.id.slice(0,12)}…</b><br>Layer ${d.layer}<br>In: ${fmtNum(inFlow,2)} | Out: ${fmtNum(outFlow,2)}`
+    })
+    .on('mouseleave', () => tooltip.style.display = 'none')
+
+  nodeSel.append('circle').attr('r', d => d.isSeed ? 10 : 7)
+    .attr('fill', d => LAYER_COLORS[Math.min(d.layer, LAYER_COLORS.length - 1)])
+    .attr('stroke', d => d.isSeed ? '#fff' : 'transparent')
+
+  nodeSel.append('text').attr('dy', 18).attr('text-anchor', 'middle').text(d => d.label)
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(120).strength(0.5))
+    .force('charge', d3.forceManyBody().strength(-300))
+    .force('center', d3.forceCenter(W / 2, H / 2))
+    .force('collision', d3.forceCollide(20))
+    .on('tick', () => {
+      linkSel.attr('d', e => {
+        const dx = (e.target.x ?? 0) - (e.source.x ?? 0)
+        const dy = (e.target.y ?? 0) - (e.source.y ?? 0)
+        const dr = Math.sqrt(dx*dx + dy*dy) * 1.5
+        return `M${e.source.x},${e.source.y} A${dr},${dr} 0 0,1 ${e.target.x},${e.target.y}`
+      })
+      nodeSel.attr('transform', d => `translate(${d.x ?? 0},${d.y ?? 0})`)
+    })
+
+  // Legend
+  const legend = svg.append('g').attr('transform', 'translate(16,16)')
+  const layerNames = ['Seed', 'Layer 1', 'Layer 2', 'External']
+  layerNames.forEach((name, i) => {
+    const row = legend.append('g').attr('transform', `translate(0,${i * 18})`)
+    row.append('circle').attr('r', 5).attr('cx', 5).attr('fill', LAYER_COLORS[Math.min(i, LAYER_COLORS.length-1)])
+    row.append('text').attr('x', 14).attr('y', 4).attr('fill', '#8C8C8A').attr('font-family', 'Geist Mono, monospace').attr('font-size', 10).text(name)
+  })
+}
+
+// ── Net flow table ────────────────────────────────────────────────────────────
+function renderFlowTable() {
+  if (!scanGraph) return
+  const { from, to } = getSliderRange()
+
+  // Collect all mints in filtered transfers
+  const mintSet = new Set()
+  const nodeFlows = new Map()   // addr → {mint → {in, out}}
+
+  for (const t of scanGraph.transfers) {
+    if (t.timestamp < from || t.timestamp > to) continue
+    if (filterMints.size && !filterMints.has(t.mint)) continue
+    mintSet.add(t.mint)
+    ;[{addr:t.to, dir:'in'}, {addr:t.from, dir:'out'}].forEach(({addr, dir}) => {
+      if (!nodeFlows.has(addr)) nodeFlows.set(addr, {})
+      const nf = nodeFlows.get(addr)
+      if (!nf[t.mint]) nf[t.mint] = { in: 0, out: 0, symbol: t.symbol }
+      nf[t.mint][dir] += t.amount
+    })
+  }
+
+  const mints   = [...mintSet]
+  const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
+
+  // Headers
+  const thead = document.getElementById('flowTableHead')
+  thead.innerHTML = `<tr><th>Address</th><th>Layer</th>${mints.map(m => {
+    const sym = scanGraph.transfers.find(t => t.mint === m)?.symbol ?? m.slice(0,6)
+    return `<th>${sym} In</th><th>${sym} Out</th><th>${sym} Net</th>`
+  }).join('')}</tr>`
+
+  // Rows — only show nodes that have flows
+  const rows = [...nodeFlows.entries()]
+    .map(([addr, flows]) => {
+      const node = nodeMap.get(addr) ?? { layer: 99, isSeed: false }
+      const total = mints.reduce((s, m) => s + Math.abs((flows[m]?.in ?? 0) - (flows[m]?.out ?? 0)), 0)
+      return { addr, flows, node, total }
+    })
+    .sort((a, b) => b.total - a.total)
+
+  const tbody = document.getElementById('flowTableBody')
+  tbody.innerHTML = rows.map(({ addr, flows, node }) => {
+    const col = LAYER_COLORS[Math.min(node.layer, LAYER_COLORS.length - 1)]
+    const cells = mints.map(m => {
+      const f = flows[m] ?? { in: 0, out: 0 }
+      const net = f.in - f.out
+      const netCls = net > 0.001 ? 'flow-pos' : net < -0.001 ? 'flow-neg' : 'flow-zero'
+      return `<td class="flow-pos">${fmtNum(f.in,2)}</td><td class="flow-neg">${fmtNum(f.out,2)}</td><td class="${netCls}">${net >= 0 ? '+' : ''}${fmtNum(net,2)}</td>`
+    }).join('')
+    return `<tr><td><span class="layer-dot" style="background:${col}"></span>${addr.slice(0,6)}…${addr.slice(-4)}</td><td>${node.layer === 99 ? 'ext' : node.layer}</td>${cells}</tr>`
+  }).join('')
+}
+
+function fmtDate(ms) {
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Environment — contains API keys, never commit
+.env
+.env.local
+.env.*.local
+
+# Snapshot data — local user data, not source
+data/
+
+# Build output
+dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+*.swp
+
+# gstack internal
+.gstack/

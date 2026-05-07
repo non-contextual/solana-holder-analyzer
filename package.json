@@ -1,0 +1,22 @@
+{
+  "name": "token-analyzer",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev":   "tsx watch src/server.ts",
+    "start": "tsx src/server.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@hono/node-server": "^2.0.0",
+    "@solana/web3.js": "^1.91.1",
+    "dotenv": "^16.4.1",
+    "hono": "^4.12.15",
+    "undici": "^6.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.5",
+    "tsx": "^4.7.1",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>transfer investigation</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0A0A0A; --surface: #161616; --surface-2: #1F1F1F;
+    --border: #2A2A2A; --border-2: #3A3A3A;
+    --text: #F2F2F0; --muted: #8C8C8A; --subtle: #5A5A58;
+    --accent: #F5A623; --mint: #5DD49A; --red: #E84B4B; --blue: #6B9BFF;
+    --font-mono: 'JetBrains Mono', monospace;
+    --font-body: 'Geist', sans-serif;
+    --font-data: 'Geist Mono', monospace;
+  }
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; }
+  .app { display: flex; flex-direction: column; height: 100vh; }
+
+  /* Header */
+  header { border-bottom: 1px solid var(--border); padding: 12px 24px; display: flex; align-items: center; gap: 16px; background: var(--surface); flex-shrink: 0; }
+  .logo { font-family: var(--font-mono); font-size: 13px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent); }
+  .logo-sep { color: var(--subtle); margin: 0 4px; }
+  a.back-link { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--border); padding: 4px 10px; margin-left: auto; }
+  a.back-link:hover { color: var(--text); border-color: var(--border-2); }
+
+  /* Settings */
+  .settings { padding: 16px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; gap: 20px; align-items: flex-end; flex-wrap: wrap; flex-shrink: 0; }
+  .field { display: flex; flex-direction: column; gap: 5px; }
+  .label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); }
+  textarea { font-family: var(--font-data); font-size: 12px; background: var(--bg); border: 1px solid var(--border-2); color: var(--text); padding: 8px 10px; outline: none; border-radius: 0; resize: vertical; min-height: 80px; width: 360px; }
+  textarea:focus { border-color: var(--accent); }
+  textarea::placeholder { color: var(--subtle); }
+  input[type="number"], input[type="date"] { font-family: var(--font-data); font-size: 12px; background: var(--bg); border: 1px solid var(--border-2); color: var(--text); padding: 7px 8px; outline: none; border-radius: 0; }
+  input[type="number"] { width: 70px; }
+  input[type="date"]   { width: 140px; color-scheme: dark; }
+  input:focus { border-color: var(--accent); }
+
+  .depth-group { display: flex; gap: 0; border: 1px solid var(--border); }
+  .depth-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 7px 14px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
+  .depth-btn + .depth-btn { border-left: 1px solid var(--border); }
+  .depth-btn.active { background: var(--accent); color: #000; }
+
+  button.btn-primary { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--accent); color: #000; border: none; padding: 9px 22px; cursor: pointer; border-radius: 0; }
+  button.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* Body */
+  .body { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* Progress */
+  .progress-section { padding: 16px 24px; border-bottom: 1px solid var(--border); display: none; flex-shrink: 0; }
+  .progress-section.visible { display: block; }
+  .log { font-family: var(--font-data); font-size: 11px; color: var(--muted); line-height: 1.9; max-height: 140px; overflow-y: auto; }
+  .log-line { display: block; }
+  .log-layer { color: var(--accent); font-weight: 500; }
+  .log-done  { color: var(--mint); }
+  .log-error { color: var(--red); }
+
+  /* Graph area */
+  .graph-area { flex: 1; display: none; flex-direction: column; overflow: hidden; }
+  .graph-area.visible { display: flex; }
+
+  /* Controls */
+  .controls { display: flex; align-items: center; gap: 10px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; flex-wrap: wrap; }
+  .ctrl-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); }
+  .token-chip { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
+  .token-chip.active { border-color: var(--accent); color: var(--accent); background: #F5A62310; }
+  .view-toggle { display: flex; border: 1px solid var(--border); margin-left: auto; }
+  .view-btn { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 14px; border: none; background: transparent; color: var(--muted); cursor: pointer; }
+  .view-btn.active { background: var(--accent); color: #000; }
+
+  /* Date slider */
+  .slider-bar { padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  .slider-labels { display: flex; justify-content: space-between; font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+  .slider-wrap { position: relative; height: 20px; margin: 0 8px; }
+  .slider-track { position: absolute; top: 8px; left: 0; right: 0; height: 4px; background: var(--border); border-radius: 2px; }
+  .slider-fill  { position: absolute; top: 8px; height: 4px; background: var(--accent); border-radius: 2px; }
+  .slider-range { position: absolute; width: 100%; height: 20px; top: 0; appearance: none; background: transparent; pointer-events: none; outline: none; }
+  .slider-range::-webkit-slider-thumb { appearance: none; pointer-events: auto; width: 14px; height: 14px; border-radius: 50%; background: var(--accent); border: 2px solid var(--bg); cursor: grab; z-index: 2; position: relative; }
+  .slider-cur { display: flex; justify-content: center; gap: 8px; font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-top: 4px; }
+  .slider-cur span { color: var(--accent); }
+
+  /* D3 graph */
+  .svg-wrap { flex: 1; overflow: hidden; position: relative; }
+  .svg-wrap svg { width: 100%; height: 100%; }
+  .node circle { stroke-width: 1.5px; cursor: pointer; }
+  .node text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); pointer-events: none; }
+  .link { stroke-opacity: 0.6; fill: none; }
+  .tooltip { position: absolute; background: var(--surface); border: 1px solid var(--border); padding: 8px 12px; font-family: var(--font-data); font-size: 11px; color: var(--text); pointer-events: none; z-index: 10; max-width: 240px; line-height: 1.6; }
+
+  /* Net flow table */
+  .table-wrap { flex: 1; overflow: auto; display: none; }
+  .table-wrap.visible { display: block; }
+  .flow-table { width: 100%; border-collapse: collapse; min-width: 600px; }
+  .flow-table th { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 14px; text-align: left; font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .flow-table td { padding: 8px 14px; border-bottom: 1px solid var(--border); font-family: var(--font-data); font-size: 12px; white-space: nowrap; }
+  .flow-table tr:hover td { background: var(--surface); }
+  .pos { color: var(--mint); } .neg { color: var(--red); } .zero { color: var(--subtle); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+
+  /* Stats */
+  .stats { padding: 8px 24px; background: var(--surface); border-top: 1px solid var(--border); font-family: var(--font-data); font-size: 11px; color: var(--muted); display: flex; gap: 20px; flex-shrink: 0; }
+  .stats b { color: var(--text); }
+
+  /* Empty */
+  .empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; color: var(--muted); }
+  .empty-icon { font-family: var(--font-mono); font-size: 22px; color: var(--subtle); }
+  .empty-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
+  .empty-sub { font-size: 13px; color: var(--subtle); text-align: center; max-width: 380px; }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <span class="logo">transfer<span class="logo-sep">/</span>investigation</span>
+    <a class="back-link" href="/">← token analyzer</a>
+  </header>
+
+  <!-- Settings -->
+  <div class="settings">
+    <div class="field">
+      <span class="label">Wallet Addresses (one per line)</span>
+      <textarea id="walletInput" placeholder="Paste wallet addresses here, one per line…" spellcheck="false"></textarea>
+    </div>
+    <div class="field">
+      <span class="label">Depth</span>
+      <div class="depth-group">
+        <button class="depth-btn active" data-d="1" onclick="setDepth(1)">1</button>
+        <button class="depth-btn"        data-d="2" onclick="setDepth(2)">2</button>
+        <button class="depth-btn"        data-d="3" onclick="setDepth(3)">3</button>
+      </div>
+    </div>
+    <div class="field">
+      <span class="label">Expand / layer</span>
+      <input type="number" id="expandInput" value="15" min="1" max="30" />
+    </div>
+    <div class="field">
+      <span class="label">From</span>
+      <input type="date" id="fromInput" />
+    </div>
+    <div class="field">
+      <span class="label">To</span>
+      <input type="date" id="toInput" />
+    </div>
+    <button class="btn-primary" id="btnScan" onclick="startScan()">Start Scan</button>
+  </div>
+
+  <div class="body">
+    <!-- Empty state -->
+    <div class="empty" id="emptyState">
+      <div class="empty-icon">⟳</div>
+      <div class="empty-title">No Investigation Yet</div>
+      <div class="empty-sub">Paste wallet addresses above, set a time range and depth, then click Start Scan.</div>
+    </div>
+
+    <!-- Progress log -->
+    <div class="progress-section" id="progressSection">
+      <div class="log" id="scanLog"></div>
+    </div>
+
+    <!-- Graph + controls -->
+    <div class="graph-area" id="graphArea">
+      <div class="controls">
+        <span class="ctrl-label">Token</span>
+        <div id="tokenChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <div class="view-toggle">
+          <button class="view-btn active" id="btnViewGraph" onclick="setView('graph')">Graph</button>
+          <button class="view-btn"        id="btnViewTable" onclick="setView('table')">Net Flow</button>
+        </div>
+      </div>
+
+      <div class="slider-bar">
+        <div class="slider-labels">
+          <span id="lblMin">—</span>
+          <span style="font-family:var(--font-mono);font-size:10px;letter-spacing:0.08em;color:var(--subtle)">TIME RANGE FILTER</span>
+          <span id="lblMax">—</span>
+        </div>
+        <div class="slider-wrap">
+          <div class="slider-track"></div>
+          <div class="slider-fill" id="sliderFill"></div>
+          <input type="range" class="slider-range" id="rangeS" min="0" max="100" value="0"   oninput="onSlider()" />
+          <input type="range" class="slider-range" id="rangeE" min="0" max="100" value="100" oninput="onSlider()" />
+        </div>
+        <div class="slider-cur"><span id="curS">—</span> → <span id="curE">—</span></div>
+      </div>
+
+      <div class="svg-wrap" id="svgWrap" style="position:relative">
+        <svg id="mainSvg"></svg>
+        <div class="tooltip" id="tooltip" style="display:none"></div>
+      </div>
+      <div class="table-wrap" id="tableWrap">
+        <table class="flow-table"><thead id="flowHead"></thead><tbody id="flowBody"></tbody></table>
+      </div>
+
+      <div class="stats">
+        Nodes <b id="sNodes">—</b> &nbsp;
+        Edges <b id="sEdges">—</b> &nbsp;
+        Transfers <b id="sTx">—</b> &nbsp;
+        Scanned <b id="sScanned">—</b>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// ── State ────────────────────────────────────────────────────────────────────
+let scanGraph    = null
+let scanSrc      = null
+let scanDepth    = 1
+let sliderMin    = 0
+let sliderMax    = 0
+let filterMints  = new Set()
+let currentView  = 'graph'
+
+const LAYER_COLORS = ['#F5A623', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
+const TOKEN_COLORS = { SOL: '#F5A623', USDC: '#6B9BFF', USDT: '#5DD49A' }
+
+// Init default dates: last 30 days
+;(function() {
+  const to   = new Date()
+  const from = new Date(to - 30 * 86400_000)
+  const fmt  = d => d.toISOString().slice(0, 10)
+  document.getElementById('fromInput').value = fmt(from)
+  document.getElementById('toInput').value   = fmt(to)
+})()
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+function setDepth(d) {
+  scanDepth = d
+  document.querySelectorAll('.depth-btn').forEach(b => b.classList.toggle('active', +b.dataset.d === d))
+}
+
+// ── Scan ──────────────────────────────────────────────────────────────────────
+function startScan() {
+  const raw = document.getElementById('walletInput').value.trim()
+  if (!raw) { alert('Enter at least one wallet address.'); return }
+  const wallets = raw.split(/[\n,\s]+/).map(w => w.trim()).filter(w => w.length > 30)
+  if (!wallets.length) { alert('No valid addresses found.'); return }
+
+  if (scanSrc) { scanSrc.close(); scanSrc = null }
+  scanGraph = null
+
+  document.getElementById('emptyState').style.display   = 'none'
+  document.getElementById('progressSection').classList.add('visible')
+  document.getElementById('graphArea').classList.remove('visible')
+  document.getElementById('scanLog').innerHTML = ''
+  document.getElementById('btnScan').disabled = true
+
+  const from   = Math.floor(new Date(document.getElementById('fromInput').value).getTime() / 1000)
+  const to     = Math.floor(new Date(document.getElementById('toInput').value).getTime()   / 1000) + 86399
+  const expand = parseInt(document.getElementById('expandInput').value) || 15
+
+  const qs  = `wallets=${encodeURIComponent(wallets.join(','))}&from=${from}&to=${to}&depth=${scanDepth}&expand=${expand}`
+  const es  = new EventSource(`/api/transfers?${qs}`)
+  scanSrc   = es
+
+  es.onmessage = e => { try { handleEvent(JSON.parse(e.data)) } catch {} }
+  es.onerror   = () => {
+    log('⚠ Connection closed.', 'log-error')
+    document.getElementById('btnScan').disabled = false
+    es.close(); scanSrc = null
+  }
+}
+
+function log(msg, cls = '') {
+  const el   = document.getElementById('scanLog')
+  const line = document.createElement('span')
+  line.className = `log-line ${cls}`
+  line.textContent = msg
+  el.appendChild(line)
+  el.appendChild(document.createElement('br'))
+  el.scrollTop = el.scrollHeight
+}
+
+function handleEvent(ev) {
+  if (ev.type === 'scan_layer') {
+    log(`▶ Layer ${ev.layer}: ${ev.total} wallet${ev.total !== 1 ? 's' : ''}`, 'log-layer')
+  } else if (ev.type === 'scan_wallet') {
+    if (ev.done === ev.total) log(`  ✓ Layer ${ev.layer} complete (${ev.total} scanned)`, 'log-done')
+  } else if (ev.type === 'scan_expand') {
+    log(`  + Discovered ${ev.discovered} addresses → expanding top ${ev.newCount} into layer ${ev.layer + 1}`)
+  } else if (ev.type === 'scan_graph') {
+    scanGraph = ev.graph
+    log(`✓ Done — ${ev.graph.nodes.length} nodes, ${ev.graph.transfers.length} transfers`, 'log-done')
+    document.getElementById('btnScan').disabled = false
+    initView()
+  } else if (ev.type === 'scan_error') {
+    log(`⚠ ${ev.message}`, 'log-error')
+    document.getElementById('btnScan').disabled = false
+  }
+}
+
+// ── Initialize after scan ─────────────────────────────────────────────────────
+function initView() {
+  const g = scanGraph
+  sliderMin = g.timeRange.min; sliderMax = g.timeRange.max
+  document.getElementById('lblMin').textContent = fmtDate(sliderMin * 1000)
+  document.getElementById('lblMax').textContent = fmtDate(sliderMax * 1000)
+  document.getElementById('rangeS').value = '0'
+  document.getElementById('rangeE').value = '100'
+  updateSlider()
+
+  // Token chips
+  const mintVol = new Map()
+  for (const e of g.edges) mintVol.set(e.mint, (mintVol.get(e.mint) ?? 0) + e.amount)
+  const topMints = [...mintVol.entries()].sort((a,b) => b[1]-a[1]).slice(0,12).map(([m]) => m)
+
+  const chips = document.getElementById('tokenChips')
+  chips.innerHTML = ''
+  for (const m of topMints) {
+    const sym  = g.edges.find(e => e.mint === m)?.symbol ?? m.slice(0,6)
+    const chip = document.createElement('button')
+    chip.className   = 'token-chip active'
+    chip.dataset.mint = m
+    chip.textContent  = sym
+    chip.onclick = () => {
+      chip.classList.toggle('active')
+      filterMints = new Set([...document.querySelectorAll('.token-chip.active')].map(c => c.dataset.mint))
+      renderCurrent()
+    }
+    chips.appendChild(chip)
+  }
+  filterMints = new Set(topMints)
+
+  document.getElementById('sNodes').textContent   = g.nodes.length
+  document.getElementById('sEdges').textContent   = g.edges.length
+  document.getElementById('sTx').textContent      = g.transfers.length
+  document.getElementById('sScanned').textContent = g.nodes.filter(n => n.layer <= scanDepth).length
+
+  document.getElementById('progressSection').classList.remove('visible')
+  document.getElementById('graphArea').classList.add('visible')
+  setView('graph')
+}
+
+// ── Slider ────────────────────────────────────────────────────────────────────
+function onSlider() {
+  const s = document.getElementById('rangeS'), e = document.getElementById('rangeE')
+  if (+s.value > +e.value) s.value = e.value
+  if (+e.value < +s.value) e.value = s.value
+  updateSlider(); renderCurrent()
+}
+
+function updateSlider() {
+  const sv = +document.getElementById('rangeS').value
+  const ev = +document.getElementById('rangeE').value
+  document.getElementById('sliderFill').style.left  = sv + '%'
+  document.getElementById('sliderFill').style.width = (ev - sv) + '%'
+  const ts = sliderMin + (sliderMax - sliderMin) * sv / 100
+  const te = sliderMin + (sliderMax - sliderMin) * ev / 100
+  document.getElementById('curS').textContent = fmtDate(ts * 1000)
+  document.getElementById('curE').textContent = fmtDate(te * 1000)
+}
+
+function getRange() {
+  const sv = +document.getElementById('rangeS').value
+  const ev = +document.getElementById('rangeE').value
+  return { from: sliderMin + (sliderMax - sliderMin) * sv / 100, to: sliderMin + (sliderMax - sliderMin) * ev / 100 }
+}
+
+// ── Edge filtering ────────────────────────────────────────────────────────────
+function getFilteredEdges() {
+  if (!scanGraph) return []
+  const { from, to } = getRange()
+  const map = new Map()
+  for (const t of scanGraph.transfers) {
+    if (t.timestamp < from || t.timestamp > to) continue
+    if (filterMints.size && !filterMints.has(t.mint)) continue
+    const [a, b, sign] = t.from < t.to ? [t.from, t.to, 1] : [t.to, t.from, -1]
+    const key = `${a}|${b}|${t.mint}`
+    const ex  = map.get(key)
+    if (ex) { ex.flow += t.amount * sign; ex.txCount++ }
+    else map.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, txCount: 1 })
+  }
+  return [...map.values()].map(e => ({
+    source: e.flow >= 0 ? e.a : e.b,
+    target: e.flow >= 0 ? e.b : e.a,
+    mint: e.mint, symbol: e.symbol, amount: Math.abs(e.flow), txCount: e.txCount
+  })).filter(e => e.amount > 0)
+}
+
+// ── View toggle ───────────────────────────────────────────────────────────────
+function setView(v) {
+  currentView = v
+  document.getElementById('btnViewGraph').classList.toggle('active', v === 'graph')
+  document.getElementById('btnViewTable').classList.toggle('active', v === 'table')
+  document.getElementById('svgWrap').style.display = v === 'graph' ? '' : 'none'
+  document.getElementById('tableWrap').classList.toggle('visible', v === 'table')
+  renderCurrent()
+}
+
+function renderCurrent() {
+  if (currentView === 'graph') renderGraph()
+  else renderTable()
+}
+
+// ── D3 Force Graph ────────────────────────────────────────────────────────────
+function tokenColor(sym) { return TOKEN_COLORS[sym] ?? '#8C8C8A' }
+
+function renderGraph() {
+  if (!scanGraph) return
+  const wrap = document.getElementById('svgWrap')
+  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 500
+  const edges = getFilteredEdges()
+
+  const activeSet = new Set()
+  for (const e of edges) { activeSet.add(e.source); activeSet.add(e.target) }
+  for (const n of scanGraph.nodes) { if (n.isSeed) activeSet.add(n.address) }
+
+  const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
+  const nodes = [...activeSet].map(id => {
+    const n = nodeMap.get(id) ?? { address: id, label: id.slice(0,6)+'…'+id.slice(-4), layer: 99, isSeed: false }
+    return { id, label: n.label, layer: n.layer, isSeed: n.isSeed }
+  })
+
+  const svg = d3.select('#mainSvg').attr('width', W).attr('height', H)
+  svg.selectAll('*').remove()
+
+  const defs = svg.append('defs')
+  const cols  = [...new Set(edges.map(e => tokenColor(e.symbol)))]
+  cols.forEach(c => {
+    defs.append('marker').attr('id','arr-'+c.slice(1)).attr('viewBox','0 -5 10 10').attr('refX',15).attr('refY',0).attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
+       .append('path').attr('d','M0,-5L10,0L0,5').attr('fill',c).attr('fill-opacity',0.7)
+  })
+
+  const g = svg.append('g')
+  svg.call(d3.zoom().scaleExtent([0.15, 5]).on('zoom', ev => g.attr('transform', ev.transform)))
+
+  const maxAmt = edges.length ? Math.max(...edges.map(e => e.amount)) : 1
+  const tooltip = document.getElementById('tooltip')
+
+  const links = g.append('g').selectAll('path').data(edges).enter().append('path')
+    .attr('class','link')
+    .attr('stroke', e => tokenColor(e.symbol))
+    .attr('stroke-width', e => Math.max(0.5, Math.min(7, e.amount / maxAmt * 7)))
+    .attr('marker-end', e => `url(#arr-${tokenColor(e.symbol).slice(1)})`)
+
+  const nodeG = g.append('g').selectAll('g').data(nodes).enter().append('g').attr('class','node')
+    .call(d3.drag()
+      .on('start', (ev,d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y })
+      .on('drag',  (ev,d) => { d.fx=ev.x; d.fy=ev.y })
+      .on('end',   (ev,d) => { if (!ev.active) sim.alphaTarget(0); d.fx=null; d.fy=null }))
+    .on('mouseover', (ev, d) => {
+      const inflow  = edges.filter(e => e.target === d.id).reduce((s,e) => s+e.amount, 0)
+      const outflow = edges.filter(e => e.source === d.id).reduce((s,e) => s+e.amount, 0)
+      tooltip.style.display = 'block'
+      tooltip.style.left    = (ev.offsetX + 14) + 'px'
+      tooltip.style.top     = (ev.offsetY - 10) + 'px'
+      tooltip.innerHTML = `<b>${d.id.slice(0,12)}…${d.id.slice(-4)}</b><br>Layer ${d.layer === 99 ? 'ext' : d.layer}${d.isSeed ? ' (seed)' : ''}<br>▲ In: ${fmtN(inflow)} &nbsp; ▼ Out: ${fmtN(outflow)}`
+    })
+    .on('mouseleave', () => tooltip.style.display = 'none')
+
+  nodeG.append('circle')
+    .attr('r', d => d.isSeed ? 11 : 7)
+    .attr('fill', d => LAYER_COLORS[Math.min(d.layer, LAYER_COLORS.length-1)])
+    .attr('stroke', d => d.isSeed ? 'rgba(255,255,255,0.5)' : 'transparent')
+
+  nodeG.append('text').attr('dy', 20).attr('text-anchor','middle').text(d => d.label)
+
+  const sim = d3.forceSimulation(nodes)
+    .force('link', d3.forceLink(edges).id(d => d.id).distance(130).strength(0.4))
+    .force('charge', d3.forceManyBody().strength(-350))
+    .force('center', d3.forceCenter(W/2, H/2))
+    .force('col', d3.forceCollide(22))
+    .on('tick', () => {
+      links.attr('d', e => {
+        const dx = (e.target.x??0) - (e.source.x??0), dy = (e.target.y??0) - (e.source.y??0)
+        const dr = Math.hypot(dx,dy) * 1.4
+        return `M${e.source.x},${e.source.y}A${dr},${dr} 0 0,1 ${e.target.x},${e.target.y}`
+      })
+      nodeG.attr('transform', d => `translate(${d.x??0},${d.y??0})`)
+    })
+
+  // Legend
+  const leg = svg.append('g').attr('transform','translate(16,16)')
+  const names = ['Seed','Layer 1','Layer 2','External']
+  names.forEach((nm, i) => {
+    const row = leg.append('g').attr('transform',`translate(0,${i*18})`)
+    row.append('circle').attr('r',5).attr('cx',5).attr('fill', LAYER_COLORS[Math.min(i,LAYER_COLORS.length-1)])
+    row.append('text').attr('x',14).attr('y',4).attr('fill','#8C8C8A').attr('font-family','Geist Mono,monospace').attr('font-size',10).text(nm)
+  })
+}
+
+// ── Net Flow Table ────────────────────────────────────────────────────────────
+function renderTable() {
+  if (!scanGraph) return
+  const { from, to } = getRange()
+  const mintSet = new Set(), flows = new Map()
+
+  for (const t of scanGraph.transfers) {
+    if (t.timestamp < from || t.timestamp > to) continue
+    if (filterMints.size && !filterMints.has(t.mint)) continue
+    mintSet.add(t.mint)
+    ;[{a:t.to,dir:'in'},{a:t.from,dir:'out'}].forEach(({a,dir}) => {
+      if (!flows.has(a)) flows.set(a, {})
+      const nf = flows.get(a)
+      if (!nf[t.mint]) nf[t.mint] = { in:0, out:0, sym: t.symbol }
+      nf[t.mint][dir] += t.amount
+    })
+  }
+
+  const mints   = [...mintSet]
+  const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
+
+  document.getElementById('flowHead').innerHTML =
+    `<tr><th>Address</th><th>Layer</th>${mints.map(m => { const s = flows.values().next().value?.[m]?.sym ?? m.slice(0,6); return `<th>${s} In</th><th>${s} Out</th><th>${s} Net</th>` }).join('')}</tr>`
+
+  const rows = [...flows.entries()].map(([addr, nf]) => {
+    const nd  = nodeMap.get(addr) ?? { layer: 99, isSeed: false }
+    const tot = mints.reduce((s,m) => s + Math.abs((nf[m]?.in??0)-(nf[m]?.out??0)), 0)
+    return { addr, nf, nd, tot }
+  }).sort((a,b) => b.tot - a.tot)
+
+  document.getElementById('flowBody').innerHTML = rows.map(({addr,nf,nd}) => {
+    const col = LAYER_COLORS[Math.min(nd.layer, LAYER_COLORS.length-1)]
+    const cells = mints.map(m => {
+      const f = nf[m] ?? {in:0,out:0}
+      const net = f.in - f.out
+      const cls = net > 0.001 ? 'pos' : net < -0.001 ? 'neg' : 'zero'
+      return `<td class="pos">${fmtN(f.in)}</td><td class="neg">${fmtN(f.out)}</td><td class="${cls}">${net>=0?'+':''}${fmtN(net)}</td>`
+    }).join('')
+    return `<tr><td><span class="dot" style="background:${col}"></span>${addr.slice(0,6)}…${addr.slice(-4)}</td><td>${nd.layer===99?'ext':nd.layer}</td>${cells}</tr>`
+  }).join('')
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+function fmtDate(ms) {
+  return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: '2-digit' })
+}
+function fmtN(n) {
+  if (!n || !isFinite(n)) return '0'
+  if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M'
+  if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(2)+'K'
+  return n.toFixed(2)
+}
+</script>
+</body>
+</html>

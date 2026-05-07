@@ -92,9 +92,12 @@ async function okxSignedGet<T>(path: string, maxRetries = 3): Promise<T> {
   const passphrase = process.env.OKX_PASSPHRASE
   if (!apiKey || !passphrase || !process.env.OKX_SECRET_KEY) throw new Error('OKX keys missing')
 
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    await acquireToken()
+  // One token per logical request, not per HTTP attempt. Previously every retry
+  // re-consumed a bucket token, which compounded backoff time during 429 storms
+  // (the very situation where we want to be MORE conservative, not less).
+  await acquireToken()
 
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
     const ts = new Date().toISOString()
     const ac = new AbortController()
     const to = setTimeout(() => ac.abort(), TIMEOUT_MS)
@@ -247,11 +250,15 @@ export interface OkxTokenPnl {
 
 interface TokenListPage { tokenList: OkxTokenPnl[]; hasNext: boolean; offset: number }
 
-// Search pnl/token-list for the target mint (up to maxPages pages)
+// Search pnl/token-list for the target mint (up to maxPages pages).
+// 3 pages × 100 tokens = 300 token search depth, plenty for top holders since
+// priapi sorts by USD value desc and we're querying their largest positions.
+// Loop also short-circuits on hasNext=false, so wallets with <300 tokens
+// finish in 1–2 calls.
 export async function getTokenPnlData(
   walletAddress: string,
   targetMint:    string,
-  maxPages       = 4,
+  maxPages       = 3,
 ): Promise<OkxTokenPnl | null> {
   let offset = 0
   const limit = '100'

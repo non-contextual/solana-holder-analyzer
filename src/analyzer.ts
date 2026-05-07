@@ -102,9 +102,13 @@ export async function analyzeToken(
     }
 
     // Use signed API as primary source for balanceUsd; fall back to pnl/token-list
-    const balanceUsd   = balances?.targetBalanceUsd ?? (pnl ? parseFloat(pnl.balanceUsd) : null)
-    const portfolioUsd = balances?.portfolioTotalUsd ?? null
-    const splUsd       = balances?.splTotalUsd ?? null
+    // when the wallet doesn't appear in OKX's signed token list. Common for PDAs,
+    // vaults, and certain LP positions where OKX's discoverable balances miss the
+    // target token but priapi still has trade history for it.
+    const balanceUsdSigned = balances?.targetBalanceUsd ?? null
+    const balanceUsd       = balanceUsdSigned ?? (pnl ? parseFloat(pnl.balanceUsd) : null)
+    const portfolioUsd     = balances?.portfolioTotalUsd ?? null
+    const splUsd           = balances?.splTotalUsd ?? null
 
     const profile: WalletProfile = {
       address:   holder.owner,
@@ -130,10 +134,18 @@ export async function analyzeToken(
 
       portfolioTotalUsd: portfolioUsd,
       splTotalUsd:       splUsd,
-      tokenPctOfTotal:   (balanceUsd != null && portfolioUsd != null && portfolioUsd > 0)
-        ? (balanceUsd / portfolioUsd) * 100 : null,
-      tokenPctOfSpl:     (balanceUsd != null && splUsd != null && splUsd > 0)
-        ? (balanceUsd / splUsd) * 100 : null,
+      // Source-consistency gate: only compute portfolio-share ratios when the
+      // numerator (target balance USD) and denominator (portfolio / SPL USD) come
+      // from the SAME OKX signed snapshot. If we had to fall back to priapi for the
+      // numerator, the two USD values use different price bases and timestamps —
+      // for PDAs the typical pathology is a $13K priapi position over a $0.18
+      // signed-portfolio (OKX only sees the dust SOL the PDA holds), giving
+      // ratios in the millions of percent. Returning null here keeps these rows
+      // out of cohort averages instead of polluting them.
+      tokenPctOfTotal:   (balanceUsdSigned != null && portfolioUsd != null && portfolioUsd > 0)
+        ? (balanceUsdSigned / portfolioUsd) * 100 : null,
+      tokenPctOfSpl:     (balanceUsdSigned != null && splUsd != null && splUsd > 0)
+        ? (balanceUsdSigned / splUsd) * 100 : null,
 
       uniqueTokens7d:  tradeStats?.uniqueTokens7d  ?? null,
       uniqueTokens90d: tradeStats?.uniqueTokens90d ?? null,

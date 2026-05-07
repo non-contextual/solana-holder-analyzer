@@ -14,6 +14,13 @@
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   }
+  /* Dark scrollbars matching the surface ramp (Firefox + WebKit). */
+  html { scrollbar-color: #2A2A2A #0A0A0A; scrollbar-width: thin; }
+  *::-webkit-scrollbar { width: 10px; height: 10px; }
+  *::-webkit-scrollbar-track { background: #0A0A0A; }
+  *::-webkit-scrollbar-thumb { background: #2A2A2A; border: 2px solid #0A0A0A; border-radius: 0; }
+  *::-webkit-scrollbar-thumb:hover { background: #3A3A3A; }
+  *::-webkit-scrollbar-corner { background: #0A0A0A; }
   :root {
     --bg:        #0A0A0A;
     --surface:   #161616;
@@ -120,6 +127,11 @@
   th:hover { color: var(--text); }
   th.sorted { color: var(--accent); }
   th .sa { margin-left: 3px; opacity: 0.7; }
+  /* Dual-key column header: primary metric on top, secondary metric (smaller) below. */
+  th.th-dual { padding: 5px 12px; cursor: default; }
+  th.th-dual .th-primary, th.th-dual .th-secondary { cursor: pointer; }
+  th.th-dual .th-secondary { font-size: 9px; color: var(--subtle); margin-top: 2px; }
+  th.th-dual .th-primary:hover, th.th-dual .th-secondary:hover { color: var(--text); }
   td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: middle; font-family: var(--font-data); font-size: 12px; white-space: nowrap; }
   tr:hover td { background: var(--surface); }
 
@@ -429,7 +441,10 @@
           <th class="th-check"><input type="checkbox" id="selectAll" class="row-checkbox" title="Select all" onclick="toggleSelectAll()" /></th>
           <th class="td-rank">#</th>
           <th onclick="sortBy('address')">Address <span class="sa" id="s-address"></span></th>
-          <th class="td-num" onclick="sortBy('supplyPct')">% Supply <span class="sa" id="s-supplyPct">↓</span></th>
+          <th class="td-num th-dual">
+            <div class="th-primary"   onclick="sortBy('supplyPct')">% Supply <span class="sa" id="s-supplyPct">↓</span></div>
+            <div class="th-secondary" onclick="sortBy('balanceUsd')">USD <span class="sa" id="s-balanceUsd"></span></div>
+          </th>
           <th class="td-num" onclick="sortBy('portfolioTotalUsd')">Portfolio <span class="sa" id="s-portfolioTotalUsd"></span></th>
           <th class="td-num" onclick="sortBy('tokenPctOfTotal')">Token / Total <span class="sa" id="s-tokenPctOfTotal"></span></th>
           <th class="td-num" onclick="sortBy('tokenPctOfSpl')">Token / SPL <span class="sa" id="s-tokenPctOfSpl"></span></th>
@@ -462,6 +477,16 @@
     <div class="footer-stat">
       <span class="footer-stat-label">USD Value Sum</span>
       <span class="footer-stat-value" id="footerUsd">—</span>
+    </div>
+    <div class="footer-sep"></div>
+    <div class="footer-stat">
+      <span class="footer-stat-label">Avg Token / Total</span>
+      <span class="footer-stat-value" id="footerAvgPctTotal">—</span>
+    </div>
+    <div class="footer-sep"></div>
+    <div class="footer-stat">
+      <span class="footer-stat-label">Avg Token / SPL</span>
+      <span class="footer-stat-value" id="footerAvgPctSpl">—</span>
     </div>
     <div class="footer-sep"></div>
     <button class="btn-scan" id="btnTransferScan" onclick="openScanPanel()" style="display:none">
@@ -962,15 +987,34 @@ function renderTable() {
 function renderFooter() {
   const count    = filteredRows.length
   const totalPct = filteredRows.reduce((s, w) => s + w.supplyPct, 0)
-  const totalUsd = filteredRows.reduce((s, w) => s + (w.balanceUsd ?? 0), 0)
-  const totalPort = filteredRows.reduce((s, w) => s + (w.portfolioTotalUsd ?? 0), 0)
-  const hasUsd  = filteredRows.some(w => w.balanceUsd != null)
-  const hasPort = filteredRows.some(w => w.portfolioTotalUsd != null)
 
-  document.getElementById('footerCount').textContent    = count
-  document.getElementById('footerSupplyPct').textContent = totalPct.toFixed(4) + '%'
-  document.getElementById('footerUsd').textContent       = hasUsd  ? '$' + fmtNum(totalUsd, 0) : '—'
-  document.getElementById('footerPortfolio').textContent = hasPort ? '$' + fmtNum(totalPort, 0) : '—'
+  // Sums + coverage: track how many wallets contributed to each sum so the user
+  // can tell partial-coverage numbers from authoritative ones.
+  let totalUsd = 0,  usdN = 0
+  let totalPort = 0, portN = 0
+  let pctTotalSum = 0, pctTotalN = 0
+  let pctSplSum = 0,   pctSplN = 0
+  for (const w of filteredRows) {
+    if (w.balanceUsd != null)         { totalUsd  += w.balanceUsd;         usdN++ }
+    if (w.portfolioTotalUsd != null)  { totalPort += w.portfolioTotalUsd;  portN++ }
+    if (w.tokenPctOfTotal != null)    { pctTotalSum += w.tokenPctOfTotal;  pctTotalN++ }
+    if (w.tokenPctOfSpl != null)      { pctSplSum   += w.tokenPctOfSpl;    pctSplN++ }
+  }
+
+  // Sums show "$X (n/total)" when coverage is partial; the bare number when full.
+  const fmtSum = (val, n) => n === 0 ? '—' : (n < count
+    ? `$${fmtNum(val, 0)} (${n}/${count})`
+    : `$${fmtNum(val, 0)}`)
+  const fmtAvgPct = (sum, n) => n === 0 ? '—' : (n < count
+    ? `${(sum / n).toFixed(2)}% (${n}/${count})`
+    : `${(sum / n).toFixed(2)}%`)
+
+  document.getElementById('footerCount').textContent       = count
+  document.getElementById('footerSupplyPct').textContent   = totalPct.toFixed(4) + '%'
+  document.getElementById('footerUsd').textContent         = fmtSum(totalUsd, usdN)
+  document.getElementById('footerPortfolio').textContent   = fmtSum(totalPort, portN)
+  document.getElementById('footerAvgPctTotal').textContent = fmtAvgPct(pctTotalSum, pctTotalN)
+  document.getElementById('footerAvgPctSpl').textContent   = fmtAvgPct(pctSplSum,   pctSplN)
 }
 
 function renderTokenHeader(token) {

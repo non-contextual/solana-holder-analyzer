@@ -1096,11 +1096,43 @@ function showEdgeDetail(simEdge) {
   // arrow direction matches the panel header (→ means fromAddr sent).
   const rowHtml = rows.map(t => chainRowHtml(t, fromAddr, toAddr)).join('')
 
+  // ── Source-tag breakdown — tells the analyst at a glance whether this
+  // relationship is plain p2p transfers, DEX swap fallout, multi-sig pay-out,
+  // pump.fun activity, etc. We bucket by txSource (Helius's parsed protocol)
+  // then label the dominant pattern.
+  const sourceCount = new Map()
+  for (const t of rows) {
+    const key = t.txSource || t.txType || 'UNKNOWN'
+    sourceCount.set(key, (sourceCount.get(key) ?? 0) + 1)
+  }
+  const sourceParts = [...sourceCount.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .map(([src, cnt]) => {
+      const info = TX_SOURCE_LABELS[src]
+      const label = info?.label || (src === 'UNKNOWN' ? '未知' : src.toLowerCase().replace(/_/g, ' '))
+      const color = info?.color || 'var(--muted)'
+      return `<span style="color:${color};margin-right:8px">${label} <span style="color:var(--subtle)">${cnt}</span></span>`
+    }).join('')
+
+  // High-level relationship verdict — heuristic but matches what an analyst
+  // would say after eyeballing the rows.
+  const swapSources = ['JUPITER','RAYDIUM','ORCA','METEORA','PHOENIX','PUMP_FUN','PUMP_AMM']
+  const swapCount = [...sourceCount.entries()].filter(([s]) => swapSources.includes(s)).reduce((s,[,c]) => s+c, 0)
+  const transferCount = (sourceCount.get('SYSTEM_PROGRAM') ?? 0) + (sourceCount.get('TRANSFER') ?? 0)
+  const stakeCount = sourceCount.get('STAKE_PROGRAM') ?? 0
+  let verdict = ''
+  if (swapCount > rows.length * 0.6)        verdict = 'DEX 撮合产物（非真转账）'
+  else if (transferCount > rows.length * 0.8) verdict = '纯转账关系'
+  else if (stakeCount > 0)                  verdict = '含质押动作'
+  else if (rows.length === 1)               verdict = '单笔接触'
+  else if (fwdCount > 0 && bwdCount > 0)    verdict = '双向往来'
+  else                                      verdict = '单向资金流'
+
   document.getElementById('nodeDetailContent').innerHTML = `
     <div class="detail-section-head" style="margin-top:0">资金流</div>
     <div class="edge-head">
       <div class="edge-pair"><span class="edge-addr">${shortFrom}</span><span class="edge-arrow">→</span><span class="edge-addr">${shortTo}</span></div>
-      <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">代币 <span style="color:var(--text)">${sym}</span></div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">代币 <span style="color:var(--text)">${sym}</span> · <span style="color:var(--accent)">${verdict}</span></div>
     </div>
     <div class="edge-summary">
       <span class="es-k">笔数</span><span class="es-v">${rows.length}（${fwdCount} 出 / ${bwdCount} 入）</span>
@@ -1108,7 +1140,11 @@ function showEdgeDetail(simEdge) {
       <span class="es-k">${shortTo} → ${shortFrom}</span><span class="es-v">${fmtN(bwdAmt)} ${sym}</span>
       <span class="es-k">净流</span><span class="es-v">${netAmt >= 0 ? '→' : '←'} ${fmtN(Math.abs(netAmt))} ${sym}${netUsd > 0.01 ? ` · 约 $${fmtN(netUsd)}` : ''}</span>
       ${grossUsd > 0.01 ? `<span class="es-k">毛流量</span><span class="es-v">约 $${fmtN(grossUsd)}</span>` : ''}
+      <span class="es-k">首末</span><span class="es-v" style="font-size:10px">${new Date(rows[0]?.timestamp*1000).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'})} → ${new Date(rows[rows.length-1]?.timestamp*1000).toLocaleDateString('zh-CN',{month:'numeric',day:'numeric'})}</span>
     </div>
+    ${sourceParts ? `<div style="padding:6px 0;font-family:var(--font-mono);font-size:10px;border-bottom:1px solid var(--border)">
+      <span style="color:var(--muted);margin-right:8px">途径</span>${sourceParts}
+    </div>` : ''}
     <div class="detail-section" style="margin-top:10px">
       <div class="detail-section-head">逐笔（时序）<span class="detail-section-extra">${rows.length} 笔</span></div>
       ${rowHtml || '<div class="chain-empty">未找到原始转账。</div>'}

@@ -208,7 +208,11 @@ export async function getAccountTypes(
       for (let j = 0; j < chunk.length; j++) {
         const addr = chunk[j]
         const acc  = accounts[j]
-        if (!acc) { result.set(addr, 'wallet'); continue }
+        // Missing account = closed (drained to 0 lamports + rent reclaimed).
+        // Used to be mislabeled 'wallet' which hid an important signal:
+        // disperser/treasury accounts often close after a single payout cycle,
+        // and the UI was treating them like normal active wallets.
+        if (!acc) { result.set(addr, 'closed'); continue }
 
         if (acc.executable) {
           result.set(addr, 'program')

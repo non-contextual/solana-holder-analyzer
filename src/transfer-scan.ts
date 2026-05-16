@@ -26,6 +26,11 @@ const TERMINAL_ENTITY_TYPES: ReadonlySet<string> = new Set(['cex', 'bridge', 'mi
 // Behavior tags that, by themselves, justify keeping a node visible even if
 // the address has no priced path back to the seed. Anything outside this set
 // is treated as ambient noise and pruned post-BFS.
+// 'closed' is intentionally NOT here — most closed accounts in a typical scan
+// are tiny dust receivers that happened to be drained; surfacing all 800+ of
+// them would re-flood the graph. We still tag closed accounts that survive
+// for other reasons (layer 1-3 OR USD floor) so the user can see the marker
+// where it carries real meaning (e.g. a layer-1 treasury that was drained).
 const FEATURE_BEHAVIOR_TAGS: ReadonlySet<string> = new Set([
   'cex-like', 'mixer-like', 'bot-like', 'scatter', 'high-fan-in', 'high-fan-out',
 ])
@@ -436,8 +441,11 @@ export async function runTransferScan(
           const types = await getAccountTypes(rpcUrl, [...scoreMap.keys()])
           for (const [addr, type] of types) {
             if (type === 'program' || type === 'lp' || type === 'bonding_curve') scoreMap.delete(addr)
-            // Missing/closed accounts: drop. Those are ephemeral PDAs that BFS
-            // shouldn't waste a slot on.
+            // Note: 'closed' (account doesn't exist on chain) used to be dropped
+            // along with null, but closed accounts are actually a strong
+            // investigative signal (treasury account drained + rent-recovered).
+            // We keep them in BFS so the UI can flag them as "已关闭". `null`
+            // means the RPC call itself failed for this batch, drop those.
             if (type === null) scoreMap.delete(addr)
           }
         } catch { /* fall back to static list */ }
@@ -537,6 +545,37 @@ export async function runTransferScan(
     intelMap = await analyzeAllWallets([...nodeMap.values()], allTransfers)
   } catch (err) {
     console.warn('[scan] wallet intel failed:', (err as Error).message)
+  }
+
+  // ── Closed-account sweep (runs BEFORE the prune so 'closed' tag participates) ─
+  // Some addresses appear in the transfer history but no longer exist on chain
+  // (treasury / disperser / temporary multi-sig drained to 0 lamports, rent
+  // reclaimed). The transfers are real but the account itself is gone. Flag
+  // them as feature so the prune keeps them visible — this is high-signal
+  // forensic info, not noise.
+  if (rpcUrl && nodeMap.size > 0) {
+    try {
+      const types = await getAccountTypes(rpcUrl, [...nodeMap.keys()])
+      let closedCount = 0
+      for (const [addr, type] of types) {
+        if (type !== 'closed') continue
+        closedCount++
+        const existing = intelMap.get(addr)
+        if (existing) {
+          if (!existing.behaviorTags.includes('closed')) existing.behaviorTags.unshift('closed')
+        } else {
+          intelMap.set(addr, {
+            address:      addr,
+            behaviorTags: ['closed'],
+            riskScore:    20,
+            summary:      '账户已关闭（drained + rent reclaimed）',
+          })
+        }
+      }
+      if (closedCount > 0) console.log(`[scan] closed accounts: flagged ${closedCount} drained address(es)`)
+    } catch (err) {
+      console.warn('[scan] closed-account sweep failed:', (err as Error).message)
+    }
   }
 
   // ── Noise prune ─────────────────────────────────────────────────────────────

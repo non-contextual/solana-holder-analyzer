@@ -46,7 +46,7 @@ export interface WalletProfile {
   tradedMints: string[]
 
   // on-chain account type
-  accountType: 'wallet' | 'program' | 'bonding_curve' | 'lp' | 'pda' | null
+  accountType: 'wallet' | 'program' | 'bonding_curve' | 'lp' | 'pda' | 'closed' | null
 }
 
 // Token commonly held across multiple analyzed wallets (for co-holder dropdown)

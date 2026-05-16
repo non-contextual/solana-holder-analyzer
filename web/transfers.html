@@ -1448,32 +1448,37 @@ function renderGraph() {
     const r    = n.isSeed ? 14 : n.layer >= 99 ? 4 : 9
     const fill = nodeFill(n), stroke = nodeStroke(n)
     const kind = nodeKind(n)
-    const strokeW = n.isSeed || walletIntel.has(n.address) || okxDataMap.has(n.address) ? 2 : 0
-    const dash    = walletIntel.has(n.address) && !n.isSeed ? '3,2' : 'none'
-    const opacity = n.layer >= 99 ? 0.4 : 1
+    const intel = walletIntel.get(n.address)
+    const isClosed = intel?.behaviorTags?.includes('closed')
+    // Closed accounts get a thicker dashed red ring so they read as "phantom"
+    // — the account in the transfer history no longer exists on chain.
+    const strokeW = isClosed ? 2 : (n.isSeed || walletIntel.has(n.address) || okxDataMap.has(n.address) ? 2 : 0)
+    const dash    = isClosed ? '4,3' : (walletIntel.has(n.address) && !n.isSeed ? '3,2' : 'none')
+    const strokeColor = isClosed ? '#E84B4B' : stroke
+    const opacity = isClosed ? 0.55 : (n.layer >= 99 ? 0.4 : 1)
 
     if (kind === 'pool' || kind === 'bridge') {
       // Diamond ◇
       const d = r * 1.2
       sel.append('path').attr('d', `M0,${-d}L${d},0L0,${d}L${-d},0Z`)
-        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('fill', fill).attr('stroke', strokeColor).attr('stroke-width', strokeW)
         .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
     } else if (kind === 'cex') {
       // Square ▢
       const d = r * 1.05
       sel.append('rect').attr('x', -d).attr('y', -d).attr('width', d*2).attr('height', d*2)
-        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('fill', fill).attr('stroke', strokeColor).attr('stroke-width', strokeW)
         .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
     } else if (kind === 'mixer') {
       // Triangle (down-pointing) ▽
       const d = r * 1.25
       sel.append('path').attr('d', `M0,${d}L${d},${-d*0.7}L${-d},${-d*0.7}Z`)
-        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('fill', fill).attr('stroke', strokeColor).attr('stroke-width', strokeW)
         .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
     } else {
       // Default: circle (seed + regular wallets)
       sel.append('circle').attr('r', r)
-        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('fill', fill).attr('stroke', strokeColor).attr('stroke-width', strokeW)
         .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
     }
   })

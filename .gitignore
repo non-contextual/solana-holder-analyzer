@@ -6,8 +6,11 @@ node_modules/
 .env.local
 .env.*.local
 
-# Snapshot data — local user data, not source
-data/
+# Snapshot data — local user data, not source. Whitelist labels.json so the
+# stake.com / community-curated entity seed travels with the repo.
+# (Note: the whitelist negation only works against `data/*` not `data/`.)
+data/*
+!data/labels.json
 
 # Build output
 dist/

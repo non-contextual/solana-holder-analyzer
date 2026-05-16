@@ -1,13 +1,18 @@
 // Wallet intelligence: entity labels + behavioral analysis
 //
-// Two-layer approach:
-// 1. Static known-address registry (exchanges, mixers, protocols)
-//    — addresses labeled on Solscan / SolanaFM / public blockchain research
-// 2. Behavioral heuristics from transfer patterns
-//    — exchange-like: high fan-out/fan-in, large volume
-//    — mixer-like: many small uniform transfers to diverse addresses
-//    — bot-like: very regular timing + fixed amounts
+// Three-layer approach:
+// 1. Hardcoded KNOWN_ENTITIES — major CEXes / bridges / protocols. Edited
+//    via code review since they're security-relevant (Binance, etc.).
+// 2. User-curated labels in data/labels.json — analysts append entities they
+//    identify in the wild (stake.com hot wallet, niche bridges, …). Loaded
+//    lazily so editing the file doesn't require a server restart.
+// 3. Behavioral heuristics from transfer patterns — cex-like / mixer-like /
+//    bot-like, computed per scan from the actual transfer set.
+// Layer 1 and 2 merge into the runtime lookup with user labels taking
+// precedence on collision (so an analyst can override a stale hardcoded entry).
 
+import { existsSync, readFileSync, writeFileSync } from 'fs'
+import { join } from 'path'
 import type { RawTransfer } from './helius'
 import type { GraphNode } from './transfer-scan'
 
@@ -64,6 +69,74 @@ export const KNOWN_ENTITIES: Record<string, EntityLabel> = {
   // ── Solana staking / protocol ──
   'Jito4APyf642JPeW1UUa9is4AY6wLPwMqmm4PY1j4MG':  { name: 'Jito Tips',  type: 'protocol' },
   'mpa4abUkjQoAvPzREkh5Mo75hZhPFQ2FSH6w7dWKuQ5':  { name: 'Marinade',   type: 'protocol' },
+}
+
+// ── User-curated label store ──────────────────────────────────────────────────
+// data/labels.json layout: { "address": { name, type, note?, addedAt? } }
+// Reads + caches the file content; getEntityLabel() merges the cache with
+// KNOWN_ENTITIES. Reload is automatic when the file's mtime changes (cheap
+// stat call), so an analyst can edit the file or hit POST /api/labels and
+// the next scan picks it up without a restart.
+interface LabelStore {
+  data:  Record<string, EntityLabel & { addedAt?: number }>
+  mtime: number
+}
+let _labelStore: LabelStore | null = null
+function labelsPath(): string {
+  // Resolve to data/labels.json next to data/_transfers (already used by storage.ts)
+  return join(__dirname, '..', 'data', 'labels.json')
+}
+function loadCustomLabels(): Record<string, EntityLabel & { addedAt?: number }> {
+  const path = labelsPath()
+  if (!existsSync(path)) {
+    _labelStore = { data: {}, mtime: 0 }
+    return {}
+  }
+  try {
+    const stat = require('fs').statSync(path)
+    if (_labelStore && _labelStore.mtime === stat.mtimeMs) return _labelStore.data
+    const raw = readFileSync(path, 'utf8')
+    const parsed = JSON.parse(raw) as Record<string, EntityLabel & { addedAt?: number }>
+    _labelStore = { data: parsed, mtime: stat.mtimeMs }
+    return parsed
+  } catch (err) {
+    console.warn('[labels] failed to load custom labels:', (err as Error).message)
+    return {}
+  }
+}
+export function getEntityLabel(address: string): EntityLabel | undefined {
+  // User labels win on collision so an analyst can correct stale hardcoded
+  // entries without a code change.
+  const custom = loadCustomLabels()
+  return custom[address] ?? KNOWN_ENTITIES[address]
+}
+
+// Append/update a label. Used by the POST /api/labels endpoint.
+export function saveCustomLabel(address: string, label: EntityLabel): void {
+  const path = labelsPath()
+  let current: Record<string, EntityLabel & { addedAt?: number }> = {}
+  if (existsSync(path)) {
+    try { current = JSON.parse(readFileSync(path, 'utf8')) } catch { /* start fresh */ }
+  }
+  current[address] = { ...label, addedAt: Date.now() }
+  writeFileSync(path, JSON.stringify(current, null, 2), 'utf8')
+  _labelStore = null   // invalidate cache so the next load sees the new content
+}
+
+export function deleteCustomLabel(address: string): boolean {
+  const path = labelsPath()
+  if (!existsSync(path)) return false
+  let current: Record<string, EntityLabel> = {}
+  try { current = JSON.parse(readFileSync(path, 'utf8')) } catch { return false }
+  if (!(address in current)) return false
+  delete current[address]
+  writeFileSync(path, JSON.stringify(current, null, 2), 'utf8')
+  _labelStore = null
+  return true
+}
+
+export function listCustomLabels(): Record<string, EntityLabel & { addedAt?: number }> {
+  return { ...loadCustomLabels() }
 }
 
 // ── Behavioral analysis ───────────────────────────────────────────────────────
@@ -158,7 +231,7 @@ export function analyzeWallet(
   _layer:    number,
   byAddress?: Map<string, RawTransfer[]>,
 ): WalletIntelligence {
-  const staticLabel = KNOWN_ENTITIES[address]
+  const staticLabel = getEntityLabel(address)
   const tags: string[] = []
   let riskScore = 0
   const notes: string[] = []
@@ -276,7 +349,7 @@ export async function analyzeAllWallets(
     // that's where "CEX deposit one hop from the seed" patterns live.
     if (node.layer > 3) {
       const txs = byAddress.get(node.address) ?? []
-      if (!KNOWN_ENTITIES[node.address] && txs.length < 5) continue
+      if (!getEntityLabel(node.address) && txs.length < 5) continue
     }
     const intel = analyzeWallet(node.address, transfers, node.layer, byAddress)
     if (intel.riskScore > 0 || intel.staticLabel || intel.behaviorTags.length) {

@@ -8,7 +8,7 @@
 
 import { Agent, Dispatcher, ProxyAgent } from 'undici'
 
-const PROXY_HOSTS = ['web3.okx.com', 'www.okx.com', 'api.dexscreener.com']
+const PROXY_HOSTS = ['web3.okx.com', 'www.okx.com', 'api.dexscreener.com', 'sns-api.bonfida.com']
 
 class HostRoutingDispatcher extends Dispatcher {
   constructor(

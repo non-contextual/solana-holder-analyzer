@@ -16,7 +16,8 @@ import { fetchWalletTransfers, isProgram, tokenUsdScore, PAGE_SIZE, RawTransfer 
 import { getAccountTypes, getAccountTypesAndBalances } from './solana'
 import { getWalletBalances } from './okx'
 import { getTokenPrices, realUsdScore, TokenPriceInfo } from './prices'
-import { analyzeAllWallets, KNOWN_ENTITIES, WalletIntelligence } from './labels'
+import { analyzeAllWallets, KNOWN_ENTITIES, getEntityLabel, WalletIntelligence } from './labels'
+import { lookupSnsDomains, entityTypeFromDomain } from './sns'
 
 // Terminal entity types — we surface them as nodes (so the user sees "this
 // money went to Binance") but never fan out from them. Otherwise BFS pulls
@@ -707,6 +708,51 @@ export async function runTransferScan(
       }
     } catch (err) {
       console.warn('[scan] account sweep failed:', (err as Error).message)
+    }
+  }
+
+  // ── SNS reverse-lookup sweep (Bonfida) ───────────────────────────────────────
+  // For each surviving node, look up any Solana Name Service domains they own.
+  // Free public API; coverage is partial but the hits are high-signal — a
+  // wallet owning 'binance-deposit.sol' or 'solcasinobetter.sol' tells the
+  // analyst what no heuristic can. Domains get folded into intel.summary; an
+  // entity type guess (cex / bridge / etc.) becomes a staticLabel-equivalent.
+  // Skipped if the abort signal already fired.
+  if (!abortSig?.aborted && nodeMap.size > 0) {
+    try {
+      const snsMap = await lookupSnsDomains([...nodeMap.keys()], abortSig)
+      let snsCount = 0
+      for (const [addr, sns] of snsMap) {
+        if (!sns.primary) continue
+        snsCount++
+        const existing = intelMap.get(addr)
+        const guessType = entityTypeFromDomain(sns.primary)
+        const domainTag = `sns:${sns.primary}`
+        // If there's no manual / hardcoded entity label, the SNS domain
+        // becomes the displayed identity. We don't overwrite KNOWN_ENTITIES
+        // because those are curated and authoritative.
+        const hasStaticLabel = !!(existing?.staticLabel || getEntityLabel(addr))
+        const inferredLabel = !hasStaticLabel && guessType
+          ? { name: sns.primary + '.sol', type: guessType as 'cex' | 'bridge' | 'mixer' | 'protocol', note: 'inferred from SNS domain' }
+          : undefined
+        const note = `SNS ${sns.domains.map(d => d + '.sol').join(', ')}`
+        if (existing) {
+          if (inferredLabel && !existing.staticLabel) existing.staticLabel = inferredLabel
+          if (!existing.behaviorTags.includes(domainTag)) existing.behaviorTags.push(domainTag)
+          existing.summary = existing.summary ? `${note} · ${existing.summary}` : note
+        } else {
+          intelMap.set(addr, {
+            address:      addr,
+            behaviorTags: [domainTag],
+            riskScore:    inferredLabel?.type === 'cex' ? 65 : inferredLabel?.type === 'mixer' ? 80 : 5,
+            summary:      note,
+            staticLabel:  inferredLabel,
+          })
+        }
+      }
+      if (snsCount > 0) console.log(`[scan] SNS sweep: ${snsCount}/${nodeMap.size} addresses own .sol domain(s)`)
+    } catch (err) {
+      console.warn('[scan] SNS sweep failed:', (err as Error).message)
     }
   }
 

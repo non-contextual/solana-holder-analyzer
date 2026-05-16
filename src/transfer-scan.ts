@@ -13,7 +13,7 @@
 //   and kills ghost nodes from no-liquidity spam token senders
 
 import { fetchWalletTransfers, isProgram, tokenUsdScore, PAGE_SIZE, RawTransfer } from './helius'
-import { getAccountTypes } from './solana'
+import { getAccountTypes, getAccountTypesAndBalances } from './solana'
 import { getWalletBalances } from './okx'
 import { getTokenPrices, realUsdScore, TokenPriceInfo } from './prices'
 import { analyzeAllWallets, KNOWN_ENTITIES, WalletIntelligence } from './labels'
@@ -32,7 +32,7 @@ const TERMINAL_ENTITY_TYPES: ReadonlySet<string> = new Set(['cex', 'bridge', 'mi
 // for other reasons (layer 1-3 OR USD floor) so the user can see the marker
 // where it carries real meaning (e.g. a layer-1 treasury that was drained).
 const FEATURE_BEHAVIOR_TAGS: ReadonlySet<string> = new Set([
-  'cex-like', 'mixer-like', 'bot-like', 'scatter', 'high-fan-in', 'high-fan-out',
+  'cex-like', 'mixer-like', 'bot-like', 'scatter', 'high-fan-in', 'high-fan-out', 'whale',
 ])
 
 // USD floors for "this address has a meaningful relationship with the seed".
@@ -664,34 +664,49 @@ export async function runTransferScan(
     console.warn('[scan] wallet intel failed:', (err as Error).message)
   }
 
-  // ── Closed-account sweep (runs BEFORE the prune so 'closed' tag participates) ─
-  // Some addresses appear in the transfer history but no longer exist on chain
-  // (treasury / disperser / temporary multi-sig drained to 0 lamports, rent
-  // reclaimed). The transfers are real but the account itself is gone. Flag
-  // them as feature so the prune keeps them visible — this is high-signal
-  // forensic info, not noise.
+  // ── Closed-account + whale sweep (runs BEFORE the prune so tags participate) ─
+  // Single batched getAccountInfo call returns BOTH lamport balance (for
+  // whale detection) and account existence (for closed detection). Closed
+  // accounts get the 'closed' tag; EOAs holding >= 10k SOL get 'whale'.
+  // 10k SOL is a useful threshold — exchanges and major treasuries clear it,
+  // but it filters out the 100-200 SOL "small fish" that would inflate the
+  // count if we used 1k.
   if (rpcUrl && nodeMap.size > 0) {
     try {
-      const types = await getAccountTypes(rpcUrl, [...nodeMap.keys()])
-      let closedCount = 0
-      for (const [addr, type] of types) {
-        if (type !== 'closed') continue
-        closedCount++
-        const existing = intelMap.get(addr)
-        if (existing) {
-          if (!existing.behaviorTags.includes('closed')) existing.behaviorTags.unshift('closed')
-        } else {
-          intelMap.set(addr, {
-            address:      addr,
-            behaviorTags: ['closed'],
-            riskScore:    20,
-            summary:      '账户已关闭（drained + rent reclaimed）',
-          })
+      const info = await getAccountTypesAndBalances(rpcUrl, [...nodeMap.keys()])
+      let closedCount = 0, whaleCount = 0
+      for (const [addr, { type, lamports }] of info) {
+        // closed
+        if (type === 'closed') {
+          closedCount++
+          const existing = intelMap.get(addr)
+          if (existing) {
+            if (!existing.behaviorTags.includes('closed')) existing.behaviorTags.unshift('closed')
+          } else {
+            intelMap.set(addr, { address: addr, behaviorTags: ['closed'], riskScore: 20, summary: '账户已关闭（drained + rent reclaimed）' })
+          }
+          continue
+        }
+        // whale (>= 10k SOL holding, EOA only — programs and PDAs don't count
+        // as whales because their lamport balance is operational, not equity)
+        const solBalance = lamports / 1e9
+        if (type === 'wallet' && solBalance >= 10_000) {
+          whaleCount++
+          const existing = intelMap.get(addr)
+          const note = `链上余额 ${solBalance.toFixed(0)} SOL`
+          if (existing) {
+            if (!existing.behaviorTags.includes('whale')) existing.behaviorTags.unshift('whale')
+            if (!existing.summary?.includes('SOL')) existing.summary = `${note}${existing.summary ? ' · ' + existing.summary : ''}`
+          } else {
+            intelMap.set(addr, { address: addr, behaviorTags: ['whale'], riskScore: 10, summary: note })
+          }
         }
       }
-      if (closedCount > 0) console.log(`[scan] closed accounts: flagged ${closedCount} drained address(es)`)
+      if (closedCount > 0 || whaleCount > 0) {
+        console.log(`[scan] account sweep: ${closedCount} closed, ${whaleCount} whales (≥10k SOL)`)
+      }
     } catch (err) {
-      console.warn('[scan] closed-account sweep failed:', (err as Error).message)
+      console.warn('[scan] account sweep failed:', (err as Error).message)
     }
   }
 

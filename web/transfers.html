@@ -332,6 +332,8 @@
         <div id="tokenChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
         <button id="btnShowExt" onclick="toggleExternal()" style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.04em;padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--subtle);cursor:pointer;flex-shrink:0" title="是否显示只被一两笔转账连到的外部钱包">外部节点 关</button>
         <button id="btnHideUnpriced" onclick="toggleUnpriced()" style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.04em;padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--subtle);cursor:pointer;flex-shrink:0" title="隐藏没有 DexScreener 价格的代币（多数是 spam 空投）">spam 代币 隐藏</button>
+        <input id="addrSearch" type="text" placeholder="搜索地址前缀..." oninput="onAddrSearch()" style="font-family:var(--font-data);font-size:11px;padding:3px 10px;border:1px solid var(--border);background:var(--surface);color:var(--text);width:160px;flex-shrink:0;outline:none" title="输入地址前缀或子串，会高亮匹配的节点" />
+        <span id="addrSearchBadge" style="font-family:var(--font-mono);font-size:10px;color:var(--subtle);flex-shrink:0"></span>
         <div class="view-toggle">
           <button class="view-btn active" id="btnViewGraph"    onclick="setView('graph')">Graph</button>
           <button class="view-btn"        id="btnViewTable"    onclick="setView('table')">Net Flow</button>
@@ -712,6 +714,32 @@ function toggleUnpriced() {
   if (scanGraph) renderCurrent()
 }
 
+// Address search: highlight + zoom-to the first node whose address contains
+// the typed substring (case-insensitive). Empty search clears highlight.
+// Doesn't filter the graph — just spotlights so the user can find a wallet
+// by partial address without scrolling through node labels.
+function onAddrSearch() {
+  const q = (document.getElementById('addrSearch')?.value || '').trim().toLowerCase()
+  const nodeEls = d3.select('#mainSvg').selectAll('g.node')
+  if (!q) {
+    nodeEls.style('opacity', 1)
+    d3.selectAll('#mainSvg path').classed('dim', false).classed('bright', false)
+    return
+  }
+  const matches = []
+  nodeEls.each(function(n) {
+    if (n.address.toLowerCase().includes(q)) matches.push({el: this, n})
+  })
+  // Dim non-matches; spotlight matches. Also pulse the matched circles
+  // so they catch the eye even when off-screen (animation visible via legend
+  // panning or zoom).
+  nodeEls.style('opacity', n => n.address.toLowerCase().includes(q) ? 1 : 0.15)
+  d3.selectAll('#mainSvg path').classed('dim', true).classed('bright', false)
+  // Show a small count badge so the user knows whether 0/1/many matched.
+  const badge = document.getElementById('addrSearchBadge')
+  if (badge) badge.textContent = matches.length === 0 ? '无' : matches.length === 1 ? '1 个匹配' : `${matches.length} 个匹配`
+}
+
 function closeNodeDetail() {
   document.getElementById('nodeDetail').classList.remove('visible')
 }
@@ -945,6 +973,11 @@ function showNodeDetail(n, graphEdges) {
       <span style="color:var(--muted);font-family:var(--font-mono);font-size:9px;text-transform:uppercase">${intel.staticLabel.type}</span>
       ${intel.staticLabel.note ? `<span style="color:var(--subtle);font-size:10px">${intel.staticLabel.note}</span>` : ''}
     </div>`
+  } else if (intel?.behaviorTags.includes('whale')) {
+    // Whale banner comes from on-chain lamports balance (>=10k SOL). The
+    // summary always starts with "链上余额 X SOL ·" so it's the most
+    // actionable single line to surface above all other metadata.
+    entityBannerHtml = `<div style="background:#5DD49A18;border:1px solid #5DD49A50;padding:6px 10px;margin-bottom:10px"><span style="color:#5DD49A;font-family:var(--font-mono);font-size:11px;font-weight:700">🐋 巨鲸</span> <span style="color:var(--text);font-size:11px;margin-left:8px">${intel.summary}</span></div>`
   } else if (intel?.behaviorTags.includes('cex-like')) {
     entityBannerHtml = `<div style="background:#6B9BFF18;border:1px solid #6B9BFF40;padding:6px 10px;margin-bottom:10px"><span style="color:#6B9BFF;font-family:var(--font-mono);font-size:10px">⚠ Suspected CEX address — ${intel.summary}</span></div>`
   } else if (intel?.behaviorTags.includes('mixer-like')) {
@@ -1054,8 +1087,10 @@ function showNodeDetail(n, graphEdges) {
         ${globalRows.join('')}
       </details>
     </div>
-    <div style="margin-top:14px;display:flex;gap:8px">
+    <div style="margin-top:14px;display:flex;gap:6px;flex-wrap:wrap">
       <a href="https://solscan.io/account/${n.address}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">Solscan ↗</a>
+      <a href="https://birdeye.so/profile/${n.address}?chain=solana" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">Birdeye ↗</a>
+      <a href="https://platform.arkhamintelligence.com/explorer/address/${n.address}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">Arkham ↗</a>
       <a href="https://web3.okx.com/portfolio/${n.address}/analysis?chainIndex=501" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">OKX ↗</a>
     </div>`
 

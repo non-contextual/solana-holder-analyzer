@@ -229,3 +229,40 @@ export async function getAccountTypes(
 
   return result
 }
+
+// Same shape as getAccountTypes but also returns the lamport balance for
+// EOAs. Callers use this when they want to flag whales (>10k SOL) alongside
+// the account-type classification. Single RPC round-trip per 100 addresses.
+export async function getAccountTypesAndBalances(
+  rpcUrl:    string,
+  addresses: string[],
+): Promise<Map<string, { type: WalletProfile['accountType']; lamports: number }>> {
+  const result = new Map<string, { type: WalletProfile['accountType']; lamports: number }>()
+  if (!addresses.length) return result
+
+  const CHUNK = 100
+  for (let i = 0; i < addresses.length; i += CHUNK) {
+    const chunk = addresses.slice(i, i + CHUNK)
+    try {
+      const raw = await rpcCall(rpcUrl, 'getMultipleAccounts', [
+        chunk,
+        { encoding: 'base64', commitment: 'confirmed' },
+      ]) as {
+        value: Array<{ executable: boolean; owner: string; lamports: number } | null>
+      } | null
+
+      const accounts = raw?.value ?? []
+      for (let j = 0; j < chunk.length; j++) {
+        const addr = chunk[j]
+        const acc  = accounts[j]
+        if (!acc) { result.set(addr, { type: 'closed', lamports: 0 }); continue }
+        if (acc.executable) { result.set(addr, { type: 'program', lamports: acc.lamports }); continue }
+        const known = PROGRAM_OWNERS[acc.owner]
+        result.set(addr, { type: known ?? 'wallet', lamports: acc.lamports })
+      }
+    } catch {
+      for (const addr of chunk) result.set(addr, { type: null, lamports: 0 })
+    }
+  }
+  return result
+}

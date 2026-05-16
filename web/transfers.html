@@ -115,9 +115,20 @@
   /* D3 graph */
   .svg-wrap { flex: 1; overflow: hidden; position: relative; }
   .svg-wrap svg { width: 100%; height: 100%; }
-  .node circle { stroke-width: 1.5px; cursor: pointer; }
-  .node text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); pointer-events: none; }
-  .link { stroke-opacity: 0.6; fill: none; }
+  .node circle { stroke-width: 1.5px; cursor: pointer; transition: r 160ms cubic-bezier(.34,1.56,.64,1), fill-opacity 160ms ease; transform-box: fill-box; transform-origin: center; }
+  .node:hover circle { filter: drop-shadow(0 0 6px rgba(245,166,35,0.45)); }
+  .node text { font-family: var(--font-data); font-size: 10px; fill: var(--muted); pointer-events: none; transition: fill 160ms ease; }
+  .node:hover text { fill: var(--text); }
+  .node.selected circle { stroke: var(--accent) !important; stroke-width: 2.4 !important; filter: drop-shadow(0 0 8px rgba(245,166,35,0.7)); }
+  .link { stroke-opacity: 0.6; fill: none; transition: stroke-opacity 200ms ease, stroke-width 200ms ease; }
+  .link.dim { stroke-opacity: 0.08; }
+  .link.bright { stroke-opacity: 0.95; }
+  /* Subtle seed pulse so the eye finds the entry points. Pure CSS, no JS. */
+  @keyframes seedPulse {
+    0%, 100% { filter: drop-shadow(0 0 0 rgba(245,166,35,0)); }
+    50%      { filter: drop-shadow(0 0 8px rgba(245,166,35,0.6)); }
+  }
+  .node.seed circle { animation: seedPulse 2.4s ease-in-out infinite; }
   .tooltip { position: absolute; background: var(--surface); border: 1px solid var(--border); padding: 8px 12px; font-family: var(--font-data); font-size: 11px; color: var(--text); pointer-events: none; z-index: 10; max-width: 240px; line-height: 1.6; }
 
   /* Net flow table */
@@ -130,6 +141,17 @@
   .pos { color: var(--mint); } .neg { color: var(--red); } .zero { color: var(--subtle); }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 
+  /* Suspects table */
+  .suspects-wrap { flex: 1; overflow: auto; display: none; padding: 16px 24px; }
+  .suspects-wrap.visible { display: block; }
+  .suspect-card { background: var(--surface); border: 1px solid var(--border); margin-bottom: 8px; padding: 12px 16px; display: flex; gap: 16px; align-items: center; }
+  .suspect-addr { font-family: var(--font-data); font-size: 12px; color: var(--text); flex: 0 0 auto; }
+  .suspect-reason { font-family: var(--font-data); font-size: 11px; color: var(--muted); flex: 1; }
+  .suspect-score { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px solid #F5A62340; background: #F5A62310; padding: 2px 8px; flex: 0 0 auto; }
+  .suspect-metrics { font-family: var(--font-data); font-size: 11px; color: var(--muted); flex: 1; }
+  .okx-dot { position: absolute; top: -2px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--mint); border: 1px solid var(--bg); }
+  .node-wrap { position: relative; display: inline-block; }
+
   /* Stats */
   .stats { padding: 8px 24px; background: var(--surface); border-top: 1px solid var(--border); font-family: var(--font-data); font-size: 11px; color: var(--muted); display: flex; gap: 20px; flex-shrink: 0; }
   .stats b { color: var(--text); }
@@ -139,6 +161,66 @@
   .empty-icon { font-family: var(--font-mono); font-size: 22px; color: var(--subtle); }
   .empty-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
   .empty-sub { font-size: 13px; color: var(--subtle); text-align: center; max-width: 380px; }
+
+  /* History panel items (referenced in loadTransferHistory HTML) */
+  .hist-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
+  .hist-item:hover { background: var(--surface-2); }
+  .hist-meta { flex: 1; min-width: 0; }
+  .hist-time { font-family: var(--font-mono); font-size: 11px; color: var(--text); font-weight: 500; }
+  .hist-sub  { font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .hist-del  { font-family: var(--font-mono); font-size: 11px; color: var(--subtle); background: none; border: none; cursor: pointer; padding: 2px 4px; flex-shrink: 0; }
+  .hist-del:hover { color: var(--red); }
+  .hist-empty { padding: 20px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--subtle); letter-spacing: 0.06em; }
+
+  /* Node detail panel (slides in from right on click) */
+  .node-detail { position: absolute; top: 0; right: 0; bottom: 0; width: 380px; background: var(--surface); border-left: 1px solid var(--border); padding: 16px; overflow-y: auto; display: none; z-index: 20; font-family: var(--font-data); font-size: 12px; }
+  .node-detail.visible { display: block; }
+  .node-detail-addr { font-family: var(--font-data); font-size: 11px; color: var(--text); word-break: break-all; margin-bottom: 10px; }
+  .node-detail-row { display: flex; justify-content: space-between; padding: 4px 0; border-bottom: 1px solid var(--border); }
+  .node-detail-label { color: var(--muted); font-size: 11px; }
+  .node-detail-val { color: var(--text); font-size: 11px; text-align: right; }
+  .node-detail-close { position: absolute; top: 8px; right: 10px; background: none; border: none; color: var(--subtle); cursor: pointer; font-size: 14px; padding: 2px 6px; }
+  .node-detail-close:hover { color: var(--text); }
+  .node-detail-copy { font-family: var(--font-mono); font-size: 9px; color: var(--muted); border: 1px solid var(--border); background: none; cursor: pointer; padding: 2px 6px; margin-left: 6px; }
+  .node-detail-copy:hover { color: var(--text); }
+
+  /* Token-chain panel: per-seed time-ordered transfer log between seed and clicked addr. */
+  .chain-section { margin-top: 14px; }
+  .chain-header { font-family: var(--font-mono); font-size: 10px; color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase; padding: 6px 0; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; }
+  .chain-header .chain-count { color: var(--subtle); }
+  .chain-empty { font-size: 11px; color: var(--subtle); padding: 8px 0; font-style: italic; }
+  .chain-row { display: grid; grid-template-columns: 64px 14px 1fr auto; gap: 6px; padding: 5px 0; border-bottom: 1px solid var(--border); align-items: baseline; font-size: 11px; }
+  .chain-row:last-child { border-bottom: none; }
+  .chain-time { color: var(--subtle); font-size: 10px; font-family: var(--font-data); }
+  .chain-arrow { color: var(--muted); font-size: 13px; text-align: center; }
+  .chain-arrow.in { color: var(--mint); }
+  .chain-arrow.out { color: var(--accent); }
+  .chain-tok { color: var(--text); }
+  .chain-amt { color: var(--text); font-variant-numeric: tabular-nums; font-size: 10px; }
+  .chain-usd { color: var(--subtle); font-size: 10px; margin-left: 4px; }
+  .chain-tx-link { color: var(--subtle); text-decoration: none; font-family: var(--font-mono); font-size: 9px; }
+  .chain-tx-link:hover { color: var(--accent); }
+  .chain-hop { background: var(--surface-2); padding: 4px 8px; margin: 6px 0; font-size: 10px; color: var(--muted); border-left: 2px solid var(--blue); }
+  .chain-badge { font-family: var(--font-mono); font-size: 9px; padding: 1px 5px; border: 1px solid; margin-left: 6px; letter-spacing: 0.02em; }
+
+  /* Recap bar — replaces the full settings form once a scan is loaded so the
+     graph gets the vertical space it deserves. Click anywhere on it to expand
+     the form back for editing or a new scan. */
+  .settings-recap { display: none; align-items: center; gap: 12px; padding: 8px 24px;
+                    background: var(--surface); border-bottom: 1px solid var(--border);
+                    font-family: var(--font-data); font-size: 12px; cursor: pointer;
+                    color: var(--muted); flex-shrink: 0; }
+  .settings-recap.visible { display: flex; }
+  .settings-recap:hover { background: var(--surface-2); }
+  .recap-tag { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
+               text-transform: uppercase; color: var(--accent); padding: 2px 6px;
+               border: 1px solid var(--accent); background: #F5A62310; }
+  .recap-seed { color: var(--text); font-weight: 500; }
+  .recap-sep  { color: var(--subtle); }
+  .recap-edit { margin-left: auto; font-family: var(--font-mono); font-size: 10px;
+                color: var(--muted); border: 1px solid var(--border); background: transparent;
+                padding: 4px 12px; cursor: pointer; letter-spacing: 0.06em; text-transform: uppercase; }
+  .recap-edit:hover { color: var(--text); border-color: var(--border-2); }
 </style>
 </head>
 <body>
@@ -147,12 +229,29 @@
   <header>
     <h1 class="logo">transfer<span class="logo-sep">/</span>investigation</h1>
     <nav class="header-actions" aria-label="Primary">
+      <div style="position:relative">
+        <button id="btnTransferHistory" class="back-link" style="cursor:pointer;background:none;font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);border:1px solid var(--border);padding:4px 10px" onclick="toggleTransferHistory()">History ▾</button>
+        <div id="transferHistoryPanel" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border-2);min-width:320px;max-height:340px;overflow-y:auto;z-index:300"></div>
+      </div>
+      <button id="btnSaveScan" style="display:none;cursor:pointer;background:none;font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);border:1px solid var(--border);padding:4px 10px" onclick="saveScan()">Save Scan</button>
       <a class="back-link" href="/">← token analyzer</a>
     </nav>
   </header>
 
+  <!-- Recap bar: shows after a scan loads. Collapses the wide form into a
+       single thin row so the graph below has more vertical space. Click to expand. -->
+  <div class="settings-recap" id="settingsRecap" onclick="expandSettings()" title="点击展开参数面板，可以修改或重新扫描">
+    <span class="recap-tag">已加载</span>
+    <span class="recap-seed" id="recapSeed">—</span>
+    <span class="recap-sep">·</span>
+    <span id="recapRange">—</span>
+    <span class="recap-sep">·</span>
+    <span id="recapDepth">—</span>
+    <button class="recap-edit" onclick="event.stopPropagation(); expandSettings()">编辑 / 重新扫描</button>
+  </div>
+
   <!-- Settings -->
-  <div class="settings">
+  <div class="settings" id="settingsPanel">
     <div class="field">
       <span class="label">Wallet Addresses (one per line)</span>
       <textarea id="walletInput" placeholder="Paste wallet addresses here, one per line…" spellcheck="false"></textarea>
@@ -177,7 +276,12 @@
       <span class="label">To</span>
       <input type="date" id="toInput" />
     </div>
+    <div class="field">
+      <span class="label">Min $ Value</span>
+      <input type="number" id="minUsdInput" value="0" min="0" step="1" style="width:70px" title="Hide edges below this USD value" oninput="if(scanGraph)renderCurrent()" />
+    </div>
     <button class="btn-primary" id="btnScan" onclick="startScan()">Start Scan</button>
+    <button id="btnAbort" onclick="abortScan()" style="display:none;font-family:var(--font-mono);font-size:12px;font-weight:600;letter-spacing:0.08em;text-transform:uppercase;background:transparent;color:var(--red);border:1px solid var(--red);padding:9px 18px;cursor:pointer;border-radius:0">Abort</button>
   </div>
 
   <main class="body">
@@ -198,9 +302,12 @@
       <div class="controls">
         <span class="ctrl-label">Token</span>
         <div id="tokenChips" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+        <button id="btnShowExt" onclick="toggleExternal()" style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.04em;padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--subtle);cursor:pointer;flex-shrink:0" title="是否显示只被一两笔转账连到的外部钱包">外部节点 关</button>
+        <button id="btnHideUnpriced" onclick="toggleUnpriced()" style="font-family:var(--font-mono);font-size:10px;font-weight:600;letter-spacing:0.04em;padding:3px 10px;border:1px solid var(--border);background:transparent;color:var(--subtle);cursor:pointer;flex-shrink:0" title="隐藏没有 DexScreener 价格的代币（多数是 spam 空投）">spam 代币 隐藏</button>
         <div class="view-toggle">
-          <button class="view-btn active" id="btnViewGraph" onclick="setView('graph')">Graph</button>
-          <button class="view-btn"        id="btnViewTable" onclick="setView('table')">Net Flow</button>
+          <button class="view-btn active" id="btnViewGraph"    onclick="setView('graph')">Graph</button>
+          <button class="view-btn"        id="btnViewTable"    onclick="setView('table')">Net Flow</button>
+          <button class="view-btn"        id="btnViewSuspects" onclick="setView('suspects')" style="display:none">Suspects <span id="suspectsBadge" style="background:#F5A62330;color:var(--accent);padding:1px 5px;font-size:9px;margin-left:4px"></span></button>
         </div>
       </div>
 
@@ -222,16 +329,24 @@
       <div class="svg-wrap" id="svgWrap" style="position:relative">
         <svg id="mainSvg"></svg>
         <div class="tooltip" id="tooltip" style="display:none"></div>
+        <!-- Node detail panel: appears on node click -->
+        <div class="node-detail" id="nodeDetail">
+          <button class="node-detail-close" onclick="closeNodeDetail()">✕</button>
+          <div id="nodeDetailContent"></div>
+        </div>
       </div>
       <div class="table-wrap" id="tableWrap">
         <table class="flow-table"><thead id="flowHead"></thead><tbody id="flowBody"></tbody></table>
       </div>
+      <div class="suspects-wrap" id="suspectsWrap">
+        <div id="suspectsBody"></div>
+      </div>
 
       <div class="stats">
-        Nodes <b id="sNodes">—</b> &nbsp;
-        Edges <b id="sEdges">—</b> &nbsp;
-        Transfers <b id="sTx">—</b> &nbsp;
-        Scanned <b id="sScanned">—</b>
+        节点 <b id="sNodes">—</b> &nbsp;
+        边 <b id="sEdges">—</b> &nbsp;
+        转账 <b id="sTx">—</b> &nbsp;
+        已扫描钱包 <b id="sScanned">—</b>
       </div>
     </div>
   </main>
@@ -240,13 +355,50 @@
 
 <script>
 // ── State ────────────────────────────────────────────────────────────────────
-let scanGraph    = null
-let scanSrc      = null
-let scanDepth    = 1
-let sliderMin    = 0
-let sliderMax    = 0
-let filterMints  = new Set()
-let currentView  = 'graph'
+let scanGraph   = null    // final TransferGraph (from scan_graph event)
+let scanSrc     = null
+let scanDepth   = 1
+let hotWallets  = new Set()   // addresses auto-classified as high-fan-out (skip-expand)
+let sliderMin   = 0
+let sliderMax   = 0
+let filterMints = new Set()
+let showExternal = false   // external ghost nodes hidden by default (huge perf win)
+let hideUnpriced = true    // hide edges with no DexScreener price (spam dust filter); on by default
+let suspectsSet  = new Set()  // for O(1) lookup during render
+let currentView = 'graph'
+let okxDataMap   = new Map()  // address → WalletOkxData
+let suspects     = []
+let tokenPrices  = new Map()  // mint → { price, liquidity, symbol }
+let walletIntel  = new Map()  // address → WalletIntelligence (entity labels + behavior)
+let currentScanWallets = []   // seed wallets used for current scan (for save)
+
+// Label colors for entity types
+const ENTITY_COLORS = {
+  cex:        '#6B9BFF',   // blue — exchange
+  bridge:     '#A78BFA',   // purple — cross-chain bridge
+  mixer:      '#E84B4B',   // red — mixer
+  sanctioned: '#E84B4B',   // red — sanctioned
+  protocol:   '#5DD49A',   // mint — known protocol
+  whale:      '#F5A623',   // amber — known whale
+  bot:        '#F59E0B',   // yellow — bot/automation
+}
+
+function entityColor(type) { return ENTITY_COLORS[type] ?? '#8C8C8A' }
+function entityBadge(intel) {
+  if (!intel) return ''
+  const label = intel.staticLabel
+  if (label) return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid;border-color:${entityColor(label.type)}40;color:${entityColor(label.type)};background:${entityColor(label.type)}18;margin-left:4px">${label.name}</span>`
+  const tag = intel.behaviorTags[0]
+  if (tag === 'cex-like') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid #6B9BFF40;color:#6B9BFF;background:#6B9BFF18;margin-left:4px">CEX?</span>`
+  if (tag === 'mixer-like') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid #E84B4B40;color:#E84B4B;background:#E84B4B18;margin-left:4px">MIXER?</span>`
+  if (tag === 'high-fan-out') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid #F5A62340;color:#F5A623;background:#F5A62318;margin-left:4px">scatter</span>`
+  return ''
+}
+
+// Target token context — set from URL params when launched from the main analyzer
+const _urlParams  = new URLSearchParams(window.location.search)
+const targetMint  = _urlParams.get('mint')  || null
+const targetPrice = parseFloat(_urlParams.get('price') || '0') || 0
 
 const LAYER_COLORS = ['#F5A623', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
 const TOKEN_COLORS = { SOL: '#F5A623', USDC: '#6B9BFF', USDT: '#5DD49A' }
@@ -267,26 +419,48 @@ function setDepth(d) {
 }
 
 // ── Scan ──────────────────────────────────────────────────────────────────────
+// Solana addresses are base58, 32–44 chars. Reject pasted junk early so we
+// don't pay for a server round-trip to find out the input was a paragraph
+// of text or a CSV with column headers.
+const BASE58_RE = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/
 function startScan() {
   const raw = document.getElementById('walletInput').value.trim()
   if (!raw) { alert('Enter at least one wallet address.'); return }
-  const wallets = raw.split(/[\n,\s]+/).map(w => w.trim()).filter(w => w.length > 30)
-  if (!wallets.length) { alert('No valid addresses found.'); return }
+  // Pre-filter tokens that are obviously not addresses (too short to ever match
+  // base58 32-44). This keeps the "X invalid entries" warning focused on
+  // address-shaped strings the user probably meant to paste — not every word
+  // of a sentence they accidentally dropped in.
+  const candidates = raw.split(/[\n,\s]+/).map(w => w.trim()).filter(w => w.length >= 30)
+  const wallets    = candidates.filter(w => BASE58_RE.test(w))
+  const invalid    = candidates.filter(w => !BASE58_RE.test(w))
+  if (!wallets.length) {
+    alert(invalid.length ? `No valid Solana addresses found.\n\nFirst offender:\n${invalid[0].slice(0,60)}` : 'No valid addresses found.')
+    return
+  }
+  if (invalid.length) {
+    if (!confirm(`${invalid.length} entry/entries don't look like Solana addresses and will be skipped:\n\n${invalid.slice(0,3).map(s=>s.slice(0,40)).join('\n')}${invalid.length>3?'\n…':''}\n\nContinue with ${wallets.length} valid?`)) return
+  }
 
   if (scanSrc) { scanSrc.close(); scanSrc = null }
-  scanGraph = null
+  scanGraph = null; okxDataMap = new Map(); suspects = []; tokenPrices = new Map(); walletIntel = new Map(); hotWallets = new Set()
 
   document.getElementById('emptyState').style.display   = 'none'
   document.getElementById('progressSection').classList.add('visible')
   document.getElementById('graphArea').classList.remove('visible')
+  document.getElementById('btnViewSuspects').style.display = 'none'
+  document.getElementById('suspectsBody').innerHTML = ''
   document.getElementById('scanLog').innerHTML = ''
   document.getElementById('btnScan').disabled = true
+  document.getElementById('btnAbort').style.display = ''
+  document.getElementById('btnSaveScan')?.setAttribute('style', 'display:none')
 
   const from   = Math.floor(new Date(document.getElementById('fromInput').value).getTime() / 1000)
   const to     = Math.floor(new Date(document.getElementById('toInput').value).getTime()   / 1000) + 86399
   const expand = parseInt(document.getElementById('expandInput').value) || 15
 
-  const qs  = `wallets=${encodeURIComponent(wallets.join(','))}&from=${from}&to=${to}&depth=${scanDepth}&expand=${expand}`
+  currentScanWallets = wallets
+  let qs = `wallets=${encodeURIComponent(wallets.join(','))}&from=${from}&to=${to}&depth=${scanDepth}&expand=${expand}`
+  if (targetMint) qs += `&targetMint=${encodeURIComponent(targetMint)}`
   const es  = new EventSource(`/api/transfers?${qs}`)
   scanSrc   = es
 
@@ -294,8 +468,20 @@ function startScan() {
   es.onerror   = () => {
     log('⚠ Connection closed.', 'log-error')
     document.getElementById('btnScan').disabled = false
+    document.getElementById('btnAbort').style.display = 'none'
     es.close(); scanSrc = null
   }
+}
+
+// Tear down the active EventSource. The server detects the abort via the
+// request signal and stops fetching new Helius pages — no more wasted RPC
+// calls after the user changes their mind.
+function abortScan() {
+  if (!scanSrc) return
+  scanSrc.close(); scanSrc = null
+  log('⨯ Scan aborted.', 'log-error')
+  document.getElementById('btnScan').disabled = false
+  document.getElementById('btnAbort').style.display = 'none'
 }
 
 function log(msg, cls = '') {
@@ -315,18 +501,51 @@ function handleEvent(ev) {
     if (ev.done === ev.total) log(`  ✓ Layer ${ev.layer} complete (${ev.total} scanned)`, 'log-done')
   } else if (ev.type === 'scan_expand') {
     log(`  + Discovered ${ev.discovered} addresses → expanding top ${ev.newCount} into layer ${ev.layer + 1}`)
+  } else if (ev.type === 'scan_hot') {
+    // High-fan-out wallet (CEX / MM / router etc.): kept in graph, but not used
+    // to seed the next BFS layer. Saves a handful of Helius pages per offender.
+    hotWallets.add(ev.address)
+    const tag = ev.cappedPages ? ' · page-capped' : ''
+    log(`  ⊘ Skip-expand ${ev.address.slice(0,8)}… layer=${ev.layer} cps=${ev.counterparties}${tag}`)
+  } else if (ev.type === 'scan_partial') {
+    // Log-only during scan; graph renders only after scan_graph
+    log(`  … ${ev.nodes.length} nodes tracked so far`)
   } else if (ev.type === 'scan_graph') {
     scanGraph = ev.graph
     log(`✓ Done — ${ev.graph.nodes.length} nodes, ${ev.graph.transfers.length} transfers`, 'log-done')
     document.getElementById('btnScan').disabled = false
+    document.getElementById('btnAbort').style.display = 'none'
+    document.getElementById('btnSaveScan').style.display = ''
     initView()
+  } else if (ev.type === 'wallet_intel') {
+    walletIntel = new Map(Object.entries(ev.intel))
+    const flagged = [...walletIntel.values()].filter(w => w.riskScore > 40).length
+    if (flagged > 0) log(`  ⚠ Wallet intelligence: ${flagged} addresses flagged (CEX/bridge/mixer/bot)`)
+    if (currentView === 'graph') renderGraph()   // re-render with labels
+  } else if (ev.type === 'scan_prices') {
+    tokenPrices = new Map(Object.entries(ev.prices))
+    log(`  ✓ Prices: ${tokenPrices.size} tokens priced via DexScreener`)
+    if (currentView === 'graph') renderGraph()
+  } else if (ev.type === 'wallet_okx') {
+    okxDataMap.set(ev.data.address, ev.data)
+    log(`  ↳ OKX ${ev.data.address.slice(0,8)}… $${fmtN(ev.data.portfolioUsd)}${ev.data.targetTokenUsd ? ` · target $${fmtN(ev.data.targetTokenUsd)}` : ''}`)
+    // Re-render so the green OKX stroke shows up immediately; without this
+    // the user only sees the indicator after toggling a filter.
+    if (currentView === 'graph' && scanGraph) renderGraph()
+  } else if (ev.type === 'scan_suspects') {
+    suspects    = ev.suspects
+    suspectsSet = new Set(ev.suspects.map(s => s.address))
+    document.getElementById('btnViewSuspects').style.display = ''
+    document.getElementById('suspectsBadge').textContent = ev.suspects.length
+    log(`⚠ ${ev.suspects.length} suspect wallet${ev.suspects.length !== 1 ? 's' : ''} flagged`, 'log-done')
+    renderSuspects()
   } else if (ev.type === 'scan_error') {
     log(`⚠ ${ev.message}`, 'log-error')
     document.getElementById('btnScan').disabled = false
   }
 }
 
-// ── Initialize after scan ─────────────────────────────────────────────────────
+// ── Initialize after full scan ────────────────────────────────────────────────
 function initView() {
   const g = scanGraph
   sliderMin = g.timeRange.min; sliderMax = g.timeRange.max
@@ -336,19 +555,29 @@ function initView() {
   document.getElementById('rangeE').value = '100'
   updateSlider()
 
-  // Token chips
-  const mintVol = new Map()
-  for (const e of g.edges) mintVol.set(e.mint, (mintVol.get(e.mint) ?? 0) + e.amount)
-  const topMints = [...mintVol.entries()].sort((a,b) => b[1]-a[1]).slice(0,12).map(([m]) => m)
+  // Token chips sorted by USD volume
+  const mintUsd = new Map()
+  for (const e of g.edges) mintUsd.set(e.mint, (mintUsd.get(e.mint) ?? 0) + (e.usdScore ?? 0))
+  const topMints = [...mintUsd.entries()].sort((a,b) => b[1]-a[1]).slice(0,12).map(([m]) => m)
+  const defaultActive = g.targetMint ? new Set([g.targetMint]) : new Set(topMints)
 
   const chips = document.getElementById('tokenChips')
   chips.innerHTML = ''
+  // Native SOL and wSOL render under the same symbol; dedupe so we don't show
+  // two identical-looking chips. The first one wins and its dataset.mint still
+  // identifies the underlying mint precisely for filtering.
+  const seenSymbols = new Set()
   for (const m of topMints) {
-    const sym  = g.edges.find(e => e.mint === m)?.symbol ?? m.slice(0,6)
+    const info = tokenPrices.get(m)
+    const sym  = symbolForMint(m)
+    if (seenSymbols.has(sym)) continue
+    seenSymbols.add(sym)
+    const tag  = info ? ` $${info.price < 0.001 ? info.price.toExponential(2) : fmtN(info.price)}` : ''
     const chip = document.createElement('button')
-    chip.className   = 'token-chip active'
-    chip.dataset.mint = m
-    chip.textContent  = sym
+    chip.className = `token-chip${defaultActive.has(m) ? ' active' : ''}`
+    // dataset.mint is the underlying identity — used for filterMints set, edge keys, copy actions.
+    // The visible text is symbol; the title is the full mint for hover-reveal.
+    chip.dataset.mint = m; chip.textContent = sym + tag; chip.title = m
     chip.onclick = () => {
       chip.classList.toggle('active')
       filterMints = new Set([...document.querySelectorAll('.token-chip.active')].map(c => c.dataset.mint))
@@ -356,16 +585,731 @@ function initView() {
     }
     chips.appendChild(chip)
   }
-  filterMints = new Set(topMints)
+  filterMints = defaultActive
 
   document.getElementById('sNodes').textContent   = g.nodes.length
   document.getElementById('sEdges').textContent   = g.edges.length
   document.getElementById('sTx').textContent      = g.transfers.length
   document.getElementById('sScanned').textContent = g.nodes.filter(n => n.layer <= scanDepth).length
 
+  // Hide the welcome empty-state — fixes the bug where loading from history
+  // left the "// NO INVESTIGATION YET" placeholder sitting on top of the actual graph.
+  document.getElementById('emptyState').style.display = 'none'
   document.getElementById('progressSection').classList.remove('visible')
   document.getElementById('graphArea').classList.add('visible')
+  // Collapse the settings form into the thin recap bar so the graph below
+  // gets the full vertical real estate of the viewport. Click the recap to expand.
+  collapseSettings()
   setView('graph')
+}
+
+function collapseSettings() {
+  const seed = currentScanWallets[0] || ''
+  const seedShort = seed ? seed.slice(0,6)+'…'+seed.slice(-4) : '—'
+  const extra = currentScanWallets.length > 1 ? `（共 ${currentScanWallets.length} 个种子）` : ''
+  document.getElementById('recapSeed').textContent  = `种子 ${seedShort}${extra}`
+  // Read date inputs raw so the recap matches what the user actually picked,
+  // not the slider's possibly-narrower display range.
+  const f = document.getElementById('fromInput').value || ''
+  const t = document.getElementById('toInput').value || ''
+  document.getElementById('recapRange').textContent = `${f} → ${t}`
+  document.getElementById('recapDepth').textContent = `深度 ${scanDepth}`
+  document.getElementById('settingsPanel').style.display = 'none'
+  document.getElementById('settingsRecap').classList.add('visible')
+}
+
+function expandSettings() {
+  document.getElementById('settingsPanel').style.display = ''
+  document.getElementById('settingsRecap').classList.remove('visible')
+}
+
+// ── Graph Layout: D3 force simulation for tracked nodes + static outer ring
+// ── for externals.
+//
+// The tracked nodes (seed + BFS layers) run a real D3 force simulation per
+// render: link force, charge, weak per-layer cluster gravity, collision. This
+// gives the springy "knowledge graph" feel (drag a node and the rest reflows).
+// Externals (layer 99, often 2000+) stay statically pinned on an outer ring so
+// we never feed thousands of nodes into the simulation — performance stays
+// good even on big scans.
+
+function tokenColor(sym) { return TOKEN_COLORS[sym] ?? '#8C8C8A' }
+
+// Persistent position cache so re-renders (filter changes, scan reloads from
+// snapshot) don't reset the layout. New nodes get seeded near their layer's
+// cluster center.
+const _simPos = new Map()
+
+let _showExtMsg = null   // deferred empty-state timer
+
+function toggleExternal() {
+  showExternal = !showExternal
+  const btn = document.getElementById('btnShowExt')
+  if (btn) btn.textContent = showExternal ? '外部节点 开' : '外部节点 关'
+  if (scanGraph) renderGraph()
+}
+
+function toggleUnpriced() {
+  hideUnpriced = !hideUnpriced
+  const btn = document.getElementById('btnHideUnpriced')
+  if (btn) btn.textContent = hideUnpriced ? 'spam 代币 隐藏' : 'spam 代币 显示'
+  if (scanGraph) renderCurrent()
+}
+
+function closeNodeDetail() {
+  document.getElementById('nodeDetail').classList.remove('visible')
+}
+
+// Find every transfer between two specific addresses, oldest first. Pulls from
+// the full transfers list (not edges) so callers see one row per on-chain event,
+// not an aggregate.
+function transfersBetween(a, b) {
+  if (!scanGraph) return []
+  return scanGraph.transfers
+    .filter(t => (t.from === a && t.to === b) || (t.from === b && t.to === a))
+    .sort((x, y) => x.timestamp - y.timestamp)
+}
+
+// Helius tx-source / tx-type → human label + color, used to render the badge
+// on each chain row. Anything unrecognized falls through to the raw source
+// string so we never lose information.
+const TX_SOURCE_LABELS = {
+  SYSTEM_PROGRAM: { label: '原生转账', color: '#8C8C8A' },
+  SOLANA_PROGRAM_LIBRARY: { label: '代币转账', color: '#8C8C8A' },
+  JUPITER:    { label: 'Jupiter swap',    color: '#F5A623' },
+  RAYDIUM:    { label: 'Raydium swap',    color: '#5DD49A' },
+  ORCA:       { label: 'Orca swap',       color: '#5DD49A' },
+  METEORA:    { label: 'Meteora swap',    color: '#5DD49A' },
+  PHOENIX:    { label: 'Phoenix swap',    color: '#5DD49A' },
+  PUMP_FUN:   { label: 'pump.fun',        color: '#F5A623' },
+  PUMP_AMM:   { label: 'pump AMM',        color: '#F5A623' },
+  MAGIC_EDEN: { label: 'NFT (Magic Eden)', color: '#A78BFA' },
+  TENSOR:     { label: 'NFT (Tensor)',    color: '#A78BFA' },
+  STAKE_PROGRAM: { label: '质押', color: '#6B9BFF' },
+}
+
+function txBadgeHtml(t) {
+  if (!t.txSource && !t.txType) return ''
+  const info = TX_SOURCE_LABELS[t.txSource]
+  if (info) return `<span class="chain-badge" style="color:${info.color};border-color:${info.color}40;background:${info.color}12">${info.label}</span>`
+  // Fall through: show raw source/type when not in the map, so user still gets the signal.
+  const raw = t.txSource && t.txSource !== 'UNKNOWN' ? t.txSource.toLowerCase().replace(/_/g, ' ')
+            : t.txType ? t.txType.toLowerCase()
+            : ''
+  return raw ? `<span class="chain-badge" style="color:var(--muted);border-color:var(--border);background:transparent">${raw}</span>` : ''
+}
+
+// One row of the chain panel. Header reads "seed ↔ viewer" left-to-right;
+// "→" means seed sent to viewer, "←" means viewer sent to seed. The tx badge
+// (Jupiter swap / Raydium swap / etc.) tells the reader *what kind* of transfer
+// this is at a glance.
+function chainRowHtml(t, leftAddr, rightAddr) {
+  const leftToRight = t.from === leftAddr
+  const sym   = symbolForMint(t.mint)
+  const usd   = edgeUsdEstimate(t.mint, t.symbol, t.amount)
+  const time  = new Date(t.timestamp * 1000).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' })
+  const usdStr = usd > 0.01 ? `<span class="chain-usd">约 $${fmtN(usd)}</span>` : ''
+  const direction = leftToRight ? '<span class="chain-arrow out" title="种子 → 目标">→</span>' : '<span class="chain-arrow in" title="种子 ← 目标">←</span>'
+  return `<div class="chain-row">
+    <span class="chain-time">${time}</span>
+    ${direction}
+    <span class="chain-tok"><span title="${t.mint}">${sym}</span> <span class="chain-amt">${fmtN(t.amount)}</span>${usdStr}${txBadgeHtml(t)}</span>
+    <a class="chain-tx-link" href="https://solscan.io/tx/${t.txHash}" target="_blank" rel="noopener" title="在 Solscan 查看交易">↗</a>
+  </div>`
+}
+
+// Per-seed section: direct transfers between seed and viewer, time-sorted.
+// When there are none AND the viewer is layer 2+, surface the most-likely
+// intermediate hops (wallets touched by both seed and viewer) so the user can
+// still trace the connection.
+function chainSectionHtml(seed, viewer) {
+  if (seed === viewer) return ''
+  const direct = transfersBetween(seed, viewer)
+  const seedShort = seed.slice(0, 6) + '…' + seed.slice(-4)
+  const viewShort = viewer.slice(0, 6) + '…'
+  let body = ''
+  if (direct.length) {
+    body = direct.map(t => chainRowHtml(t, seed, viewer)).join('')
+  } else {
+    // No direct edge — search for 1-hop bridges via the BFS-discovered nodes.
+    const seedCps   = new Set(scanGraph.transfers.filter(t => t.from === seed).map(t => t.to)
+      .concat(scanGraph.transfers.filter(t => t.to === seed).map(t => t.from)))
+    const viewerCps = new Set(scanGraph.transfers.filter(t => t.from === viewer).map(t => t.to)
+      .concat(scanGraph.transfers.filter(t => t.to === viewer).map(t => t.from)))
+    const hops = [...seedCps].filter(a => viewerCps.has(a) && a !== seed && a !== viewer).slice(0, 3)
+    if (!hops.length) {
+      body = `<div class="chain-empty">扫描窗口内这两个地址之间没有直连，也没找到 1 跳的中转钱包。</div>`
+    } else {
+      body = hops.map(hop => {
+        const hopShort = hop.slice(0,6)+'…'+hop.slice(-4)
+        const sToHop = transfersBetween(seed, hop).slice(-3)
+        const hopToV = transfersBetween(hop, viewer).slice(0, 3)
+        return `<div class="chain-hop">经过中转钱包 ${hopShort}</div>
+          ${sToHop.map(t => chainRowHtml(t, seed, hop)).join('')}
+          ${hopToV.map(t => chainRowHtml(t, hop, viewer)).join('')}`
+      }).join('')
+    }
+  }
+  const tag = direct.length ? `${direct.length} 笔直连`
+            : body.includes('chain-empty') ? '无连线'
+            : '间接连接'
+  return `<div class="chain-section">
+    <div class="chain-header">
+      <span>种子 ${seedShort} ↔ ${viewShort}</span>
+      <span class="chain-count">${tag}</span>
+    </div>
+    ${body}
+  </div>`
+}
+
+function showNodeDetail(n, graphEdges) {
+  const inEdges  = graphEdges.filter(e => e.target === n.address)
+  const outEdges = graphEdges.filter(e => e.source === n.address)
+  const inAmt    = inEdges.reduce((s,e) => s+e.amount, 0)
+  const outAmt   = outEdges.reduce((s,e) => s+e.amount, 0)
+  const inUsd    = inEdges.reduce((s,e) => s+(e.usdScore||0), 0)
+  const outUsd   = outEdges.reduce((s,e) => s+(e.usdScore||0), 0)
+  const okx      = okxDataMap.get(n.address)
+  const intel    = walletIntel.get(n.address)
+  const isSus    = suspectsSet.has(n.address)
+  const sus      = suspects.find(s => s.address === n.address)
+
+  const layerWord = n.isSeed ? '种子' : n.layer >= 99 ? '外部（仅 1-2 笔关联）' : `第 ${n.layer} 跳`
+  const rows = [
+    ['位置',  layerWord],
+    ['转入',  `${fmtN(inAmt)}${inUsd > 0 ? `（约 $${fmtN(inUsd)}）` : ''}`],
+    ['转出',  `${fmtN(outAmt)}${outUsd > 0 ? `（约 $${fmtN(outUsd)}）` : ''}`],
+    ['关联',  `${inEdges.length} 个入边 / ${outEdges.length} 个出边`],
+  ]
+  if (hotWallets.has(n.address)) rows.push(['BFS 状态', '已跳过（疑似池子或高频钱包）'])
+  if (intel?.riskScore > 0) rows.push(['风险评分', `${intel.riskScore}/100`])
+  if (intel?.behaviorTags.length) rows.push(['行为标签', intel.behaviorTags.join('、')])
+  if (intel?.stats) {
+    const st = intel.stats
+    if (st.txPerHour  != null) rows.push(['每小时交易', `${st.txPerHour.toFixed(1)} 笔`])
+    if (st.interTxCV  != null) rows.push(['交易间隔 CV', `${st.interTxCV.toFixed(2)} ${st.interTxCV < 0.3 ? '⚠ 机器人节奏' : ''}`])
+    if (st.burstRatio != null) rows.push(['爆发比例', `${(st.burstRatio*100).toFixed(0)}% 在 60 秒窗口内`])
+    if (st.amountCV   != null) rows.push(['金额 CV',   `${st.amountCV.toFixed(2)} ${st.amountCV < 0.2 ? '⚠ 金额固定' : ''}`])
+    if (st.outDegree  != null) rows.push(['出度', `${st.outDegree} 个唯一收款方`])
+  }
+  if (okx) {
+    rows.push(['总持仓', `$${fmtN(okx.portfolioUsd)}`])
+    if (okx.targetTokenUsd) rows.push(['目标代币', `$${fmtN(okx.targetTokenUsd)}（占 SPL ${okx.targetTokenPct?.toFixed(0)}%）`])
+  }
+
+  // Build entity badge HTML
+  let entityBannerHtml = ''
+  if (intel?.staticLabel) {
+    const c = entityColor(intel.staticLabel.type)
+    entityBannerHtml = `<div style="background:${c}20;border:1px solid ${c}50;padding:6px 10px;margin-bottom:10px;display:flex;align-items:center;gap:8px">
+      <span style="color:${c};font-family:var(--font-mono);font-size:11px;font-weight:700">${intel.staticLabel.name}</span>
+      <span style="color:var(--muted);font-family:var(--font-mono);font-size:9px;text-transform:uppercase">${intel.staticLabel.type}</span>
+      ${intel.staticLabel.note ? `<span style="color:var(--subtle);font-size:10px">${intel.staticLabel.note}</span>` : ''}
+    </div>`
+  } else if (intel?.behaviorTags.includes('cex-like')) {
+    entityBannerHtml = `<div style="background:#6B9BFF18;border:1px solid #6B9BFF40;padding:6px 10px;margin-bottom:10px"><span style="color:#6B9BFF;font-family:var(--font-mono);font-size:10px">⚠ Suspected CEX address — ${intel.summary}</span></div>`
+  } else if (intel?.behaviorTags.includes('mixer-like')) {
+    entityBannerHtml = `<div style="background:#E84B4B18;border:1px solid #E84B4B40;padding:6px 10px;margin-bottom:10px"><span style="color:#E84B4B;font-family:var(--font-mono);font-size:10px">⚠ Mixer-like pattern — ${intel.summary}</span></div>`
+  } else if (intel?.behaviorTags.includes('high-fan-out')) {
+    entityBannerHtml = `<div style="background:#F5A62318;border:1px solid #F5A62340;padding:6px 10px;margin-bottom:10px"><span style="color:#F5A623;font-family:var(--font-mono);font-size:10px">↗ High scatter — ${intel.summary}</span></div>`
+  }
+
+  document.getElementById('nodeDetailContent').innerHTML = `
+    ${isSus ? `<div style="color:var(--red);font-family:var(--font-mono);font-size:10px;margin-bottom:8px">⚠ SUSPECT: ${sus?.reason ?? ''}</div>` : ''}
+    ${entityBannerHtml}
+    <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:4px">ADDRESS</div>
+    <div class="node-detail-addr">${n.address}
+      <button class="node-detail-copy" onclick="navigator.clipboard.writeText('${n.address}').catch(()=>{})">copy</button>
+    </div>
+    ${rows.map(([k,v]) => `<div class="node-detail-row"><span class="node-detail-label">${k}</span><span class="node-detail-val">${v}</span></div>`).join('')}
+    ${(!n.isSeed && currentScanWallets.length)
+      ? currentScanWallets.map(seed => chainSectionHtml(seed, n.address)).join('')
+      : ''
+    }
+    <div style="margin-top:10px;display:flex;gap:8px">
+      <a href="https://solscan.io/account/${n.address}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">Solscan ↗</a>
+      <a href="https://web3.okx.com/portfolio/${n.address}/analysis?chainIndex=501" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">OKX ↗</a>
+    </div>`
+
+  document.getElementById('nodeDetail').classList.add('visible')
+}
+
+function renderGraph() {
+  if (!scanGraph) return
+
+  const nodeMap    = new Map(scanGraph.nodes.map(n => [n.address, n]))
+  const tracked    = new Set(scanGraph.nodes.map(n => n.address))
+  const allEdges   = getFilteredEdges()
+  const graphEdges = allEdges.filter(e => tracked.has(e.source) && tracked.has(e.target))
+
+  // Active node set — externals only join if showExternal=true.
+  const active = new Set()
+  for (const e of graphEdges) {
+    const s = nodeMap.get(e.source), t = nodeMap.get(e.target)
+    if (!s || !t) continue
+    if (s.layer < 99) active.add(e.source)
+    if (t.layer < 99) active.add(e.target)
+    if (showExternal) { active.add(e.source); active.add(e.target) }
+  }
+  for (const n of scanGraph.nodes) { if (n.isSeed) active.add(n.address) }
+  const allNodes = [...active].map(id => nodeMap.get(id)).filter(Boolean)
+
+  // Empty state
+  if (graphEdges.length === 0) {
+    const svg = d3.select('#mainSvg')
+    svg.selectAll('*').remove()
+    svg.append('text').attr('x', '50%').attr('y', '50%').attr('text-anchor', 'middle')
+      .attr('fill', '#5A5A58').attr('font-family', 'Geist Mono,monospace').attr('font-size', 13)
+      .text('当前筛选下没有可显示的转账')
+    return
+  }
+
+  const wrap = document.getElementById('svgWrap')
+  const W = wrap.clientWidth || 1280, H = wrap.clientHeight || 500
+  const cx = W / 2, cy = H / 2
+
+  // Split: tracked goes into the force simulation, externals get pinned on an
+  // outer ring statically. With ~2000 externals this saves the sim from melting.
+  const trackedNodes  = allNodes.filter(n => n.layer < 99)
+  const externalNodes = allNodes.filter(n => n.layer >= 99)
+
+  // Per-layer cluster centers, spread on a ring around the seed cluster.
+  const trackedLayers = [...new Set(trackedNodes.map(n => n.layer))].sort((a,b) => a-b)
+  const maxLayer = trackedLayers.length ? Math.max(...trackedLayers, 1) : 1
+  const ringR    = Math.min(W, H) * 0.22
+  const clusterCenter = new Map()
+  clusterCenter.set(0, [cx, cy])
+  let nonSeedLayers = trackedLayers.filter(l => l !== 0)
+  nonSeedLayers.forEach((layer, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(1, nonSeedLayers.length) - Math.PI / 2
+    const r = ringR * (1 + (layer - 1) * 0.6)
+    clusterCenter.set(layer, [cx + r * Math.cos(angle), cy + r * Math.sin(angle)])
+  })
+
+  // Seed node positions from the cache, or near the layer's cluster center for new nodes.
+  for (const n of trackedNodes) {
+    const prev = _simPos.get(n.address)
+    if (prev) { n.x = prev.x; n.y = prev.y; n.vx = 0; n.vy = 0 }
+    else {
+      const [ccx, ccy] = clusterCenter.get(n.layer) || [cx, cy]
+      n.x = ccx + (Math.random() - 0.5) * 80
+      n.y = ccy + (Math.random() - 0.5) * 80
+      n.vx = 0; n.vy = 0
+    }
+  }
+  // Seed isSeed nodes near the exact center (small jitter when multiple seeds).
+  const seedNodes = trackedNodes.filter(n => n.isSeed)
+  seedNodes.forEach((s, i) => {
+    if (seedNodes.length === 1) { s.x = cx; s.y = cy }
+    else {
+      const a = (2 * Math.PI * i) / seedNodes.length
+      s.x = cx + 30 * Math.cos(a); s.y = cy + 30 * Math.sin(a)
+    }
+    s.fx = s.x; s.fy = s.y   // pin seeds so the rest of the graph orbits them
+  })
+
+  // Pin externals to a static outer ring, evenly distributed around the canvas.
+  const outerR = Math.min(W, H) * 0.46
+  externalNodes.forEach((n, i) => {
+    const angle = (2 * Math.PI * i) / Math.max(1, externalNodes.length)
+    n.x = cx + outerR * Math.cos(angle); n.y = cy + outerR * Math.sin(angle)
+    n.fx = n.x; n.fy = n.y
+  })
+
+  // Build mutable edge objects for d3.forceLink (it mutates source/target into node refs).
+  const nodeByAddr = new Map(allNodes.map(n => [n.address, n]))
+  const simEdges = graphEdges.map(e => ({
+    ...e,
+    source: nodeByAddr.get(e.source),
+    target: nodeByAddr.get(e.target),
+  })).filter(e => e.source && e.target)
+
+  // Force tuning by graph size — smaller scans get stronger spring; large get
+  // weaker so the layout settles within the pre-tick budget.
+  const N = trackedNodes.length
+  const chargeStr = N > 80 ? -260 : N > 30 ? -420 : -560
+  const linkDist  = N > 80 ? 60  : N > 30 ? 90  : 120
+
+  function forceCluster(alpha) {
+    for (const n of trackedNodes) {
+      if (n.fx != null) continue
+      const [ccx, ccy] = clusterCenter.get(n.layer) || [cx, cy]
+      n.vx += (ccx - n.x) * alpha * 0.18
+      n.vy += (ccy - n.y) * alpha * 0.18
+    }
+  }
+
+  const sim = d3.forceSimulation(allNodes)
+    .force('link',    d3.forceLink(simEdges).id(d => d.address).distance(linkDist).strength(0.45))
+    .force('charge',  d3.forceManyBody().strength(chargeStr).distanceMax(420))
+    .force('center',  d3.forceCenter(cx, cy).strength(0.02))
+    .force('collide', d3.forceCollide(n => n.isSeed ? 22 : (n.layer >= 99 ? 5 : 14)))
+    .force('cluster', forceCluster)
+    .alphaDecay(0.028)
+    .stop()
+
+  // Pre-tick to a near-stable state before we paint anything — avoids the
+  // "exploding-from-center" startup that real force sims have. After pre-tick
+  // we restart at a low alpha so drag interaction still kicks the spring.
+  const numTicks = Math.min(280, Math.ceil(Math.log(sim.alphaMin()) / Math.log(1 - 0.028)))
+  for (let i = 0; i < numTicks; i++) sim.tick()
+
+  // ── SVG setup ──────────────────────────────────────────────────────────────
+  const svg = d3.select('#mainSvg').attr('width', W).attr('height', H)
+  svg.selectAll('*').remove()
+
+  const defs = svg.append('defs')
+
+  // Grid background pattern — gives the canvas the "infinite space" feel that
+  // knowledge-graph-style viewers have. Lines are barely visible (0.4 opacity
+  // dark surface) so they don't compete with nodes/edges.
+  defs.append('pattern').attr('id', 'tx-grid').attr('width', 40).attr('height', 40)
+    .attr('patternUnits', 'userSpaceOnUse')
+    .append('path').attr('d', 'M40 0L0 0 0 40').attr('fill', 'none')
+    .attr('stroke', '#1A1A1A').attr('stroke-width', 0.5)
+
+  const zg   = svg.append('g')
+  // Grid lives inside the zoom group so it pans/scales with the camera.
+  zg.append('rect').attr('x', -W * 5).attr('y', -H * 5)
+    .attr('width', W * 10).attr('height', H * 10).attr('fill', 'url(#tx-grid)')
+
+  const zoom = d3.zoom().scaleExtent([0.05, 12])
+    .on('zoom', ev => zg.attr('transform', ev.transform))
+  svg.call(zoom)
+
+  const linkG = zg.append('g')
+  const nodeG = zg.append('g')
+
+  // Arrowhead markers per token color
+  const usedCols = [...new Set(graphEdges.map(e => tokenColor(e.symbol)))]
+  usedCols.forEach(c => {
+    defs.append('marker').attr('id', 'arr-' + c.replace('#', ''))
+      .attr('viewBox', '0 -5 10 10').attr('refX', 14).attr('refY', 0)
+      .attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', c).attr('fill-opacity', 0.7)
+  })
+
+  // ── Edges ──────────────────────────────────────────────────────────────────
+  const maxAmt = graphEdges.reduce((m, e) => Math.max(m, e.amount), 0.001)
+  const linkPaths = linkG.selectAll('path').data(simEdges).enter().append('path')
+    .attr('fill', 'none')
+    .attr('stroke', e => tokenColor(e.symbol))
+    .attr('stroke-opacity', 0.5)
+    .attr('stroke-width', e => Math.max(0.8, Math.min(6, (e.amount / maxAmt) * 6)))
+    .attr('marker-end', e => `url(#arr-${tokenColor(e.symbol).replace('#', '')})`)
+
+  function edgePath(e) {
+    const s = e.source, t = e.target
+    if (!s || !t || s.x == null || t.x == null) return ''
+    const dr = Math.hypot(t.x - s.x, t.y - s.y) * 1.6
+    return `M${s.x},${s.y}A${dr},${dr} 0 0,1 ${t.x},${t.y}`
+  }
+  linkPaths.attr('d', edgePath)
+
+  // ── Nodes ──────────────────────────────────────────────────────────────────
+  const nodeEls = nodeG.selectAll('g').data(allNodes).enter().append('g')
+    .attr('class', n => 'node' + (n.isSeed ? ' seed' : ''))
+    .attr('transform', n => `translate(${n.x},${n.y})`)
+    .attr('cursor', 'pointer')
+    .on('click', (ev, n) => {
+      ev.stopPropagation()
+      showNodeDetail(n, graphEdges)
+      nodeEls.classed('selected', d => d.address === n.address)
+      const touching = new Set([n.address])
+      simEdges.forEach(e => {
+        if (e.source.address === n.address || e.target.address === n.address) {
+          touching.add(e.source.address); touching.add(e.target.address)
+        }
+      })
+      linkPaths
+        .classed('dim',    e => !(e.source.address === n.address || e.target.address === n.address))
+        .classed('bright', e =>   e.source.address === n.address || e.target.address === n.address)
+      nodeEls.style('opacity', d => touching.has(d.address) ? 1 : 0.22)
+      // Smooth pan to bring the clicked node into the visible sweet spot
+      // (left of the right-side detail panel).
+      const PANEL_W = 380
+      const targetCx = Math.max(W * 0.32, (W - PANEL_W) / 2)
+      const cur = d3.zoomTransform(svg.node())
+      const k = Math.max(cur.k, 0.85)
+      svg.transition().duration(450)
+        .call(zoom.transform, d3.zoomIdentity.translate(targetCx - k * n.x, H / 2 - k * n.y).scale(k))
+    })
+    .on('mouseover', (ev, n) => {
+      const tip = document.getElementById('tooltip')
+      const rect = document.getElementById('svgWrap').getBoundingClientRect()
+      tip.style.display = 'block'
+      tip.style.left = (ev.clientX - rect.left + 12) + 'px'
+      tip.style.top  = (ev.clientY - rect.top - 8) + 'px'
+      tip.textContent = n.label + (n.isSeed ? '（种子）' : '') + (suspectsSet.has(n.address) ? ' ⚠' : '')
+    })
+    .on('mouseleave', (ev) => {
+      document.getElementById('tooltip').style.display = 'none'
+      // Whatever shape the node is (circle/rect/path), shrink it back by reverting the scale.
+      // We animate scale on the inner shape, not the parent g, so the group's translate stays clean.
+      d3.select(ev.currentTarget).selectAll('circle, rect, path').transition().duration(160)
+        .attr('transform', 'scale(1)')
+    })
+    .on('mouseenter', (ev) => {
+      // Subtle scale-up tells the user "this is clickable" + makes tiny external dots reachable.
+      d3.select(ev.currentTarget).selectAll('circle, rect, path').transition().duration(160)
+        .attr('transform', 'scale(1.3)')
+    })
+    .call(d3.drag()
+      .on('start', (ev, n) => {
+        if (n.layer >= 99) return   // externals are pinned, no drag
+        if (!ev.active) sim.alphaTarget(0.18).restart()
+        n.fx = n.x; n.fy = n.y
+      })
+      .on('drag', (ev, n) => {
+        if (n.layer >= 99) return
+        n.fx = ev.x; n.fy = ev.y
+      })
+      .on('end', (ev, n) => {
+        if (n.layer >= 99) return
+        if (!ev.active) sim.alphaTarget(0)
+        // Seeds stay pinned. Other nodes release so the graph can re-settle.
+        if (!n.isSeed) { n.fx = null; n.fy = null }
+      }))
+
+  // Shape encoding: pools / hot fan-out wallets get a diamond, CEX addresses
+  // get a square, mixers get a downward triangle, everyone else gets a circle.
+  // Shape carries semantic meaning faster than color alone.
+  function nodeKind(n) {
+    if (n.isSeed) return 'seed'
+    if (hotWallets.has(n.address)) return 'pool'   // auto-detected pool / high fan-out
+    const intel = walletIntel.get(n.address)
+    if (intel?.staticLabel?.type === 'cex')    return 'cex'
+    if (intel?.staticLabel?.type === 'bridge') return 'bridge'
+    if (intel?.staticLabel?.type === 'mixer')  return 'mixer'
+    if (intel?.behaviorTags?.includes('cex-like'))   return 'cex'
+    if (intel?.behaviorTags?.includes('mixer-like')) return 'mixer'
+    return 'wallet'
+  }
+  function nodeFill(n) {
+    if (suspectsSet.has(n.address)) return '#E84B4B'
+    const kind = nodeKind(n)
+    if (kind === 'pool')   return '#A78BFA'
+    if (kind === 'cex')    return '#6B9BFF'
+    if (kind === 'bridge') return '#6B9BFF'
+    if (kind === 'mixer')  return '#E84B4B'
+    return LAYER_COLORS[Math.min(n.layer >= 99 ? 4 : n.layer, LAYER_COLORS.length-1)]
+  }
+  function nodeStroke(n) {
+    if (n.isSeed) return 'rgba(255,255,255,0.6)'
+    if (walletIntel.has(n.address)) return 'rgba(255,255,255,0.35)'
+    if (okxDataMap.has(n.address)) return 'rgba(93,212,154,0.7)'
+    return 'none'
+  }
+
+  // Draw each node with the shape its `nodeKind` dictates. Path strings use
+  // local coordinates around (0,0); the group's translate(x,y) places it.
+  // Sizes chosen to be roughly equal-area, so a diamond and a circle look
+  // comparably weighted.
+  nodeEls.each(function(n) {
+    const sel  = d3.select(this)
+    const r    = n.isSeed ? 14 : n.layer >= 99 ? 4 : 9
+    const fill = nodeFill(n), stroke = nodeStroke(n)
+    const kind = nodeKind(n)
+    const strokeW = n.isSeed || walletIntel.has(n.address) || okxDataMap.has(n.address) ? 2 : 0
+    const dash    = walletIntel.has(n.address) && !n.isSeed ? '3,2' : 'none'
+    const opacity = n.layer >= 99 ? 0.4 : 1
+
+    if (kind === 'pool' || kind === 'bridge') {
+      // Diamond ◇
+      const d = r * 1.2
+      sel.append('path').attr('d', `M0,${-d}L${d},0L0,${d}L${-d},0Z`)
+        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
+    } else if (kind === 'cex') {
+      // Square ▢
+      const d = r * 1.05
+      sel.append('rect').attr('x', -d).attr('y', -d).attr('width', d*2).attr('height', d*2)
+        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
+    } else if (kind === 'mixer') {
+      // Triangle (down-pointing) ▽
+      const d = r * 1.25
+      sel.append('path').attr('d', `M0,${d}L${d},${-d*0.7}L${-d},${-d*0.7}Z`)
+        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
+    } else {
+      // Default: circle (seed + regular wallets)
+      sel.append('circle').attr('r', r)
+        .attr('fill', fill).attr('stroke', stroke).attr('stroke-width', strokeW)
+        .attr('stroke-dasharray', dash).attr('fill-opacity', opacity)
+    }
+  })
+
+  // Labels: seeds always; layer-1 if not too many; layer 2+ on hover only.
+  const showLabelsLayer1 = trackedNodes.filter(n => n.layer === 1).length <= 20
+  nodeEls.filter(n => n.isSeed || (showLabelsLayer1 && n.layer === 1)).append('text')
+    .attr('dy', n => (n.isSeed ? 14 : 9) + 11)
+    .attr('text-anchor', 'middle').attr('fill', '#8C8C8A')
+    .attr('font-family', 'Geist Mono,monospace').attr('font-size', 9)
+    .attr('pointer-events', 'none')
+    .text(n => n.label)
+
+  // ── Live tick: while the sim is still cooling (after pre-tick we restart at
+  // low alpha so dragging stays bouncy), the on('tick') handler keeps node
+  // transforms and edge paths in sync. Once alpha drops below alphaMin, sim
+  // stops on its own — no perpetual rAF burn.
+  function paintTick() {
+    nodeEls.attr('transform', n => `translate(${n.x},${n.y})`)
+    linkPaths.attr('d', edgePath)
+  }
+  sim.on('tick', paintTick)
+  // Kick off the post-pre-tick "settle" phase so the layout breathes for a beat
+  // before fully cooling. Higher alpha for smaller graphs gives a more obvious
+  // springy feel; bigger graphs settle faster to avoid jank.
+  sim.alpha(N > 80 ? 0.08 : 0.2).restart()
+
+  // Cache positions so re-renders preserve layout across filter changes.
+  sim.on('end', () => {
+    for (const n of allNodes) _simPos.set(n.address, { x: n.x, y: n.y })
+  })
+
+  // ── Legend ─────────────────────────────────────────────────────────────────
+  const layerLabel = l => l === 0 ? '种子' : `第 ${l} 跳`
+  const presentLayers = new Set(allNodes.map(n => n.layer))
+  const presentTracked = [...presentLayers].filter(l => l < 99).sort((a,b) => a-b)
+  const hasExternal   = presentLayers.has(99)
+  const legend = svg.append('g').attr('transform', 'translate(16,16)')
+  let li = 0
+  for (const l of presentTracked) {
+    const row = legend.append('g').attr('transform', `translate(0,${li*20})`)
+    row.append('circle').attr('r', 5).attr('cx', 6).attr('fill', LAYER_COLORS[Math.min(l, LAYER_COLORS.length-1)])
+    row.append('text').attr('x', 16).attr('y', 4).attr('fill', '#8C8C8A')
+      .attr('font-family', 'Geist Mono,monospace').attr('font-size', 10).text(layerLabel(l))
+    li++
+  }
+  if (hasExternal && showExternal) {
+    const row = legend.append('g').attr('transform', `translate(0,${li*20})`)
+    row.append('circle').attr('r', 4).attr('cx', 6).attr('fill', LAYER_COLORS[4]).attr('fill-opacity', 0.5)
+    row.append('text').attr('x', 16).attr('y', 4).attr('fill', '#8C8C8A')
+      .attr('font-family', 'Geist Mono,monospace').attr('font-size', 10).text('外部节点')
+    li++
+  }
+  // Shape legend: helps the user decode pool diamonds, CEX squares, etc.
+  const shapeRows = []
+  if ([...hotWallets].some(a => nodeByAddr.has(a))) shapeRows.push({ shape: 'diamond', color: '#A78BFA', label: '◆ 池子 / 高频' })
+  if (allNodes.some(n => nodeKind(n) === 'cex'))   shapeRows.push({ shape: 'square',  color: '#6B9BFF', label: '■ CEX 交易所' })
+  if (allNodes.some(n => nodeKind(n) === 'mixer')) shapeRows.push({ shape: 'triangle', color: '#E84B4B', label: '▽ 混币器' })
+  for (const r of shapeRows) {
+    const row = legend.append('g').attr('transform', `translate(0,${li*20})`)
+    // Use a text glyph for the shape icon to keep this simple — actual nodes use SVG shapes.
+    row.append('text').attr('x', 0).attr('y', 5).attr('fill', r.color)
+      .attr('font-family', 'Geist Mono,monospace').attr('font-size', 11).text(r.label)
+    li++
+  }
+
+  // Click on SVG background: deselect + clear dimming.
+  svg.on('click', () => {
+    closeNodeDetail()
+    nodeEls.classed('selected', false).style('opacity', 1)
+    linkPaths.classed('dim', false).classed('bright', false)
+  })
+}
+
+// Tooltip on hover: short address only. Click → detail panel for full info.
+
+function renderSuspects() {
+  const el = document.getElementById('suspectsBody')
+  if (!suspects.length) { el.innerHTML = '<p style="color:var(--muted);padding:16px">No suspects flagged.</p>'; return }
+  el.innerHTML = suspects.map(s => {
+    const okx     = okxDataMap.get(s.address)
+    const metrics = okx ? `Portfolio $${fmtN(okx.portfolioUsd)} &middot; Target $${fmtN(okx.targetTokenUsd ?? 0)} (${okx.targetTokenPct?.toFixed(0) ?? '?'}% SPL)` : 'OKX data pending&hellip;'
+    return `<div class="suspect-card">
+      <span class="suspect-addr">${s.address.slice(0,8)}&hellip;${s.address.slice(-6)}</span>
+      <span class="suspect-metrics">${metrics}</span>
+      <span class="suspect-reason">${s.reason}</span>
+      <span class="suspect-score">score ${s.score}</span>
+    </div>`
+  }).join('')
+}
+
+// ── Transfer Snapshot Save / Load ─────────────────────────────────────────────
+let transferHistoryOpen = false
+
+async function saveScan() {
+  if (!scanGraph) return
+  const note = prompt('Optional label:', '')
+  if (note === null) return
+  const body = { wallets: currentScanWallets, graph: scanGraph, prices: Object.fromEntries(tokenPrices), note: note || undefined }
+  const res = await fetch('/api/transfer-snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (res.ok) {
+    const btn = document.getElementById('btnSaveScan')
+    const prev = btn.textContent; btn.textContent = '✓ Saved'
+    setTimeout(() => btn.textContent = prev, 2000)
+  }
+}
+
+function toggleTransferHistory() {
+  transferHistoryOpen = !transferHistoryOpen
+  const panel = document.getElementById('transferHistoryPanel')
+  if (transferHistoryOpen) { loadTransferHistory(); panel.style.display = '' }
+  else panel.style.display = 'none'
+}
+
+document.addEventListener('click', e => {
+  if (!transferHistoryOpen) return
+  const panel = document.getElementById('transferHistoryPanel')
+  const btn   = document.getElementById('btnTransferHistory')
+  if (panel && btn && !panel.contains(e.target) && !btn.contains(e.target)) {
+    panel.style.display = 'none'; transferHistoryOpen = false
+  }
+})
+
+async function loadTransferHistory() {
+  const panel = document.getElementById('transferHistoryPanel')
+  panel.innerHTML = '<div class="hist-empty">Loading&hellip;</div>'
+  const snaps = await fetch('/api/transfer-snapshots').then(r => r.json()).catch(() => [])
+  if (!snaps.length) { panel.innerHTML = '<div class="hist-empty">NO SAVED SCANS YET</div>'; return }
+  panel.innerHTML = snaps.map(s => {
+    const dt  = new Date(s.savedAt)
+    const str = dt.toLocaleString('en-US', { month:'short', day:'numeric', year:'2-digit', hour:'2-digit', minute:'2-digit' })
+    const w   = (s.wallets ?? []).map(a => a.slice(0,6)+'&hellip;').join(', ')
+    return `<div class="hist-item" onclick="loadTransferScan('${s.filename}')">
+      <div class="hist-meta">
+        <div class="hist-time">${str}</div>
+        <div class="hist-sub">${w} &middot; ${s.nodeCount} nodes${s.note ? ' &middot; ' + s.note : ''}</div>
+      </div>
+      <button class="hist-del" onclick="deleteTransferScan(event,'${s.filename}')" title="Delete">✕</button>
+    </div>`
+  }).join('')
+}
+
+async function loadTransferScan(filename) {
+  const snap = await fetch(`/api/transfer-snapshots/${filename}`).then(r => r.json()).catch(() => null)
+  if (!snap) return
+  scanGraph = snap.graph
+  tokenPrices = snap.prices ? new Map(Object.entries(snap.prices)) : new Map()
+  okxDataMap = new Map(); suspects = []; currentScanWallets = snap.wallets ?? []
+  walletIntel = new Map(); hotWallets = new Set()
+
+  // Recover the scan parameters from the saved graph so the recap bar reads
+  // accurately. Depth is the deepest tracked layer (ignoring 99 externals);
+  // the date range comes from the graph's actual timeRange.
+  const layers = scanGraph.nodes.map(n => n.layer).filter(l => l < 99)
+  scanDepth = layers.length ? Math.max(...layers) : 1
+  document.querySelectorAll('.depth-btn').forEach(b => b.classList.toggle('active', +b.dataset.d === scanDepth))
+  if (scanGraph.timeRange) {
+    const iso = ts => new Date(ts * 1000).toISOString().slice(0, 10)
+    document.getElementById('fromInput').value = iso(scanGraph.timeRange.min)
+    document.getElementById('toInput').value   = iso(scanGraph.timeRange.max)
+  }
+  if (currentScanWallets.length) document.getElementById('walletInput').value = currentScanWallets.join('\n')
+
+  document.getElementById('transferHistoryPanel').style.display = 'none'
+  transferHistoryOpen = false
+  document.getElementById('btnSaveScan').style.display = ''
+  initView()
+}
+
+async function deleteTransferScan(e, filename) {
+  e.stopPropagation()
+  if (!confirm('Delete this scan?')) return
+  await fetch(`/api/transfer-snapshots/${filename}`, { method: 'DELETE' })
+  loadTransferHistory()
 }
 
 // ── Slider ────────────────────────────────────────────────────────────────────
@@ -394,9 +1338,51 @@ function getRange() {
 }
 
 // ── Edge filtering ────────────────────────────────────────────────────────────
+const WSOL_MINT = 'So11111111111111111111111111111111111111112'
+const STABLE_MINTS_FE = new Set([
+  'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v',
+  'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB',
+  'USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA',
+])
+
+// Real-spot USD value for a transfer. SOL pulls the wSOL DexScreener price
+// captured at scan time (the back end mirrors wSOL → 'SOL' sentinel in
+// tokenPrices). The 150 fallback only kicks in when DexScreener failed for
+// both keys, so most scans now report accurate values regardless of the
+// market-day price of SOL.
+function edgeUsdEstimate(mint, symbol, amount) {
+  if (mint === 'SOL' || mint === WSOL_MINT) {
+    const info = tokenPrices.get('SOL') || tokenPrices.get(WSOL_MINT)
+    return info ? amount * info.price : amount * 150
+  }
+  if (STABLE_MINTS_FE.has(mint)) return amount
+  const info = tokenPrices.get(mint)
+  if (info) return amount * info.price
+  const tm = scanGraph?.targetMint
+  if (tm && mint === tm) return amount * (targetPrice || 0.001)
+  return 0
+}
+
+// Symbol lookup for display. Underlying state (filterMints, edge keys, copy
+// buttons) still uses mint — this is presentation only.
+function symbolForMint(mint) {
+  if (mint === 'SOL' || mint === WSOL_MINT) return 'SOL'
+  if (mint === 'EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v') return 'USDC'
+  if (mint === 'Es9vMFrzaCERmJfrF4H2FYD4KCoNkY11McCe8BenwNYB') return 'USDT'
+  if (mint === 'USDSwr9ApdHk5bvJKMjzff41FfuX8bSxdKcR81vTwcA') return 'USDS'
+  const info = tokenPrices.get(mint)
+  if (info?.symbol) return info.symbol
+  // Try to recover symbol from a transfer record (server-side helius.ts populates
+  // this for known mints; falls back to mint slice when unknown).
+  const t = scanGraph?.transfers.find(x => x.mint === mint)
+  if (t?.symbol && !t.symbol.endsWith('…')) return t.symbol
+  return mint.slice(0, 4) + '…'
+}
+
 function getFilteredEdges() {
   if (!scanGraph) return []
   const { from, to } = getRange()
+  const minUsd = parseFloat(document.getElementById('minUsdInput')?.value) || 0
   const map = new Map()
   for (const t of scanGraph.transfers) {
     if (t.timestamp < from || t.timestamp > to) continue
@@ -404,14 +1390,18 @@ function getFilteredEdges() {
     const [a, b, sign] = t.from < t.to ? [t.from, t.to, 1] : [t.to, t.from, -1]
     const key = `${a}|${b}|${t.mint}`
     const ex  = map.get(key)
-    if (ex) { ex.flow += t.amount * sign; ex.txCount++ }
-    else map.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, txCount: 1 })
+    if (ex) { ex.flow += t.amount * sign; ex.usdFlow += edgeUsdEstimate(t.mint, t.symbol, t.amount); ex.txCount++ }
+    else map.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, usdFlow: edgeUsdEstimate(t.mint, t.symbol, t.amount), txCount: 1 })
   }
-  return [...map.values()].map(e => ({
-    source: e.flow >= 0 ? e.a : e.b,
-    target: e.flow >= 0 ? e.b : e.a,
-    mint: e.mint, symbol: e.symbol, amount: Math.abs(e.flow), txCount: e.txCount
-  })).filter(e => e.amount > 0)
+  return [...map.values()]
+    .filter(e => Math.abs(e.flow) > 0)
+    .filter(e => !hideUnpriced || e.usdFlow > 0)
+    .filter(e => minUsd <= 0 || e.usdFlow >= minUsd)
+    .map(e => ({
+      source: e.flow >= 0 ? e.a : e.b,
+      target: e.flow >= 0 ? e.b : e.a,
+      mint: e.mint, symbol: e.symbol, amount: Math.abs(e.flow), usdScore: e.usdFlow, txCount: e.txCount
+    }))
 }
 
 // ── View toggle ───────────────────────────────────────────────────────────────
@@ -419,112 +1409,35 @@ function setView(v) {
   currentView = v
   document.getElementById('btnViewGraph').classList.toggle('active', v === 'graph')
   document.getElementById('btnViewTable').classList.toggle('active', v === 'table')
-  document.getElementById('svgWrap').style.display = v === 'graph' ? '' : 'none'
+  document.getElementById('btnViewSuspects').classList.toggle('active', v === 'suspects')
+  document.getElementById('svgWrap').style.display           = v === 'graph'    ? '' : 'none'
   document.getElementById('tableWrap').classList.toggle('visible', v === 'table')
+  document.getElementById('suspectsWrap').classList.toggle('visible', v === 'suspects')
   renderCurrent()
 }
 
 function renderCurrent() {
-  if (currentView === 'graph') renderGraph()
-  else renderTable()
+  if (currentView === 'graph')    renderGraph()
+  else if (currentView === 'table')    renderTable()
+  else if (currentView === 'suspects') renderSuspects()
 }
 
-// ── D3 Force Graph ────────────────────────────────────────────────────────────
-function tokenColor(sym) { return TOKEN_COLORS[sym] ?? '#8C8C8A' }
-
-function renderGraph() {
-  if (!scanGraph) return
-  const wrap = document.getElementById('svgWrap')
-  const W = wrap.clientWidth || 900, H = wrap.clientHeight || 500
-  const edges = getFilteredEdges()
-
-  const activeSet = new Set()
-  for (const e of edges) { activeSet.add(e.source); activeSet.add(e.target) }
-  for (const n of scanGraph.nodes) { if (n.isSeed) activeSet.add(n.address) }
-
-  const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
-  const nodes = [...activeSet].map(id => {
-    const n = nodeMap.get(id) ?? { address: id, label: id.slice(0,6)+'…'+id.slice(-4), layer: 99, isSeed: false }
-    return { id, label: n.label, layer: n.layer, isSeed: n.isSeed }
-  })
-
-  const svg = d3.select('#mainSvg').attr('width', W).attr('height', H)
-  svg.selectAll('*').remove()
-
-  const defs = svg.append('defs')
-  const cols  = [...new Set(edges.map(e => tokenColor(e.symbol)))]
-  cols.forEach(c => {
-    defs.append('marker').attr('id','arr-'+c.slice(1)).attr('viewBox','0 -5 10 10').attr('refX',15).attr('refY',0).attr('markerWidth',5).attr('markerHeight',5).attr('orient','auto')
-       .append('path').attr('d','M0,-5L10,0L0,5').attr('fill',c).attr('fill-opacity',0.7)
-  })
-
-  const g = svg.append('g')
-  svg.call(d3.zoom().scaleExtent([0.15, 5]).on('zoom', ev => g.attr('transform', ev.transform)))
-
-  const maxAmt = edges.length ? Math.max(...edges.map(e => e.amount)) : 1
-  const tooltip = document.getElementById('tooltip')
-
-  const links = g.append('g').selectAll('path').data(edges).enter().append('path')
-    .attr('class','link')
-    .attr('stroke', e => tokenColor(e.symbol))
-    .attr('stroke-width', e => Math.max(0.5, Math.min(7, e.amount / maxAmt * 7)))
-    .attr('marker-end', e => `url(#arr-${tokenColor(e.symbol).slice(1)})`)
-
-  const nodeG = g.append('g').selectAll('g').data(nodes).enter().append('g').attr('class','node')
-    .call(d3.drag()
-      .on('start', (ev,d) => { if (!ev.active) sim.alphaTarget(0.3).restart(); d.fx=d.x; d.fy=d.y })
-      .on('drag',  (ev,d) => { d.fx=ev.x; d.fy=ev.y })
-      .on('end',   (ev,d) => { if (!ev.active) sim.alphaTarget(0); d.fx=null; d.fy=null }))
-    .on('mouseover', (ev, d) => {
-      const inflow  = edges.filter(e => e.target === d.id).reduce((s,e) => s+e.amount, 0)
-      const outflow = edges.filter(e => e.source === d.id).reduce((s,e) => s+e.amount, 0)
-      tooltip.style.display = 'block'
-      tooltip.style.left    = (ev.offsetX + 14) + 'px'
-      tooltip.style.top     = (ev.offsetY - 10) + 'px'
-      tooltip.innerHTML = `<b>${d.id.slice(0,12)}…${d.id.slice(-4)}</b><br>Layer ${d.layer === 99 ? 'ext' : d.layer}${d.isSeed ? ' (seed)' : ''}<br>▲ In: ${fmtN(inflow)} &nbsp; ▼ Out: ${fmtN(outflow)}`
-    })
-    .on('mouseleave', () => tooltip.style.display = 'none')
-
-  nodeG.append('circle')
-    .attr('r', d => d.isSeed ? 11 : 7)
-    .attr('fill', d => LAYER_COLORS[Math.min(d.layer, LAYER_COLORS.length-1)])
-    .attr('stroke', d => d.isSeed ? 'rgba(255,255,255,0.5)' : 'transparent')
-
-  nodeG.append('text').attr('dy', 20).attr('text-anchor','middle').text(d => d.label)
-
-  const sim = d3.forceSimulation(nodes)
-    .force('link', d3.forceLink(edges).id(d => d.id).distance(130).strength(0.4))
-    .force('charge', d3.forceManyBody().strength(-350))
-    .force('center', d3.forceCenter(W/2, H/2))
-    .force('col', d3.forceCollide(22))
-    .on('tick', () => {
-      links.attr('d', e => {
-        const dx = (e.target.x??0) - (e.source.x??0), dy = (e.target.y??0) - (e.source.y??0)
-        const dr = Math.hypot(dx,dy) * 1.4
-        return `M${e.source.x},${e.source.y}A${dr},${dr} 0 0,1 ${e.target.x},${e.target.y}`
-      })
-      nodeG.attr('transform', d => `translate(${d.x??0},${d.y??0})`)
-    })
-
-  // Legend
-  const leg = svg.append('g').attr('transform','translate(16,16)')
-  const names = ['Seed','Layer 1','Layer 2','External']
-  names.forEach((nm, i) => {
-    const row = leg.append('g').attr('transform',`translate(0,${i*18})`)
-    row.append('circle').attr('r',5).attr('cx',5).attr('fill', LAYER_COLORS[Math.min(i,LAYER_COLORS.length-1)])
-    row.append('text').attr('x',14).attr('y',4).attr('fill','#8C8C8A').attr('font-family','Geist Mono,monospace').attr('font-size',10).text(nm)
-  })
-}
 
 // ── Net Flow Table ────────────────────────────────────────────────────────────
 function renderTable() {
   if (!scanGraph) return
   const { from, to } = getRange()
+  const minUsd  = parseFloat(document.getElementById('minUsdInput')?.value) || 0
   const mintSet = new Set(), flows = new Map()
 
   for (const t of scanGraph.transfers) {
     if (t.timestamp < from || t.timestamp > to) continue
     if (filterMints.size && !filterMints.has(t.mint)) continue
+    const usd = edgeUsdEstimate(t.mint, t.symbol, t.amount)
+    // Mirror the graph view's filters: unpriced toggle, then Min $ Value cutoff.
+    // Without this, the table happily shows spam tokens while the graph hides them.
+    if (hideUnpriced && usd <= 0) continue
+    if (minUsd > 0 && usd < minUsd) continue
     mintSet.add(t.mint)
     ;[{a:t.to,dir:'in'},{a:t.from,dir:'out'}].forEach(({a,dir}) => {
       if (!flows.has(a)) flows.set(a, {})
@@ -538,7 +1451,10 @@ function renderTable() {
   const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
 
   document.getElementById('flowHead').innerHTML =
-    `<tr><th>Address</th><th>Layer</th>${mints.map(m => { const s = flows.values().next().value?.[m]?.sym ?? m.slice(0,6); return `<th>${s} In</th><th>${s} Out</th><th>${s} Net</th>` }).join('')}</tr>`
+    `<tr><th>地址</th><th>位置</th>${mints.map(m => {
+      const s = symbolForMint(m)
+      return `<th title="${m}">${s} 入</th><th title="${m}">${s} 出</th><th title="${m}">${s} 净</th>`
+    }).join('')}</tr>`
 
   const rows = [...flows.entries()].map(([addr, nf]) => {
     const nd  = nodeMap.get(addr) ?? { layer: 99, isSeed: false }
@@ -554,7 +1470,8 @@ function renderTable() {
       const cls = net > 0.001 ? 'pos' : net < -0.001 ? 'neg' : 'zero'
       return `<td class="pos">${fmtN(f.in)}</td><td class="neg">${fmtN(f.out)}</td><td class="${cls}">${net>=0?'+':''}${fmtN(net)}</td>`
     }).join('')
-    return `<tr><td><span class="dot" style="background:${col}"></span>${addr.slice(0,6)}…${addr.slice(-4)}</td><td>${nd.layer===99?'ext':nd.layer}</td>${cells}</tr>`
+    const layerLabel = nd.isSeed ? '种子' : nd.layer === 99 ? '外部' : `${nd.layer} 跳`
+    return `<tr><td><span class="dot" style="background:${col}"></span>${addr.slice(0,6)}…${addr.slice(-4)}</td><td>${layerLabel}</td>${cells}</tr>`
   }).join('')
 }
 

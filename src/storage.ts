@@ -119,3 +119,63 @@ export function deleteSnapshot(mint: string, filename: string): boolean {
     return false
   }
 }
+
+// ── Transfer scan snapshots ───────────────────────────────────────────────────
+// Stored in data/transfers/{timestamp}.json
+
+function transferDir(): string {
+  return join(dataDir(), '_transfers')
+}
+
+export interface TransferSnapshotMeta {
+  filename:  string
+  savedAt:   number
+  wallets:   string[]   // first 3 seed addresses
+  note?:     string
+  nodeCount: number
+}
+
+export function saveTransferSnapshot(snap: Record<string, unknown>): string {
+  const dir = transferDir()
+  ensureDir(dir)
+  const ts  = Date.now()
+  const filename = `${ts}.json`
+  writeFileSync(join(dir, filename), JSON.stringify({ ...snap, savedAt: ts }), 'utf8')
+  return filename
+}
+
+export function listTransferSnapshots(): TransferSnapshotMeta[] {
+  const dir = transferDir()
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter(f => /^\d+\.json$/.test(f))
+    .sort().reverse()
+    .slice(0, 50)
+    .map(f => {
+      try {
+        const raw = JSON.parse(readFileSync(join(dir, f), 'utf8'))
+        return {
+          filename:  f,
+          savedAt:   raw.savedAt ?? 0,
+          wallets:   (raw.wallets ?? []).slice(0, 3),
+          note:      raw.note,
+          nodeCount: raw.graph?.nodes?.length ?? 0,
+        } as TransferSnapshotMeta
+      } catch { return null }
+    })
+    .filter((m): m is TransferSnapshotMeta => m !== null)
+}
+
+export function loadTransferSnapshot(filename: string): Record<string, unknown> | null {
+  validateFilename(filename)
+  const path = join(transferDir(), filename)
+  if (!existsSync(path)) return null
+  try { return JSON.parse(readFileSync(path, 'utf8')) } catch { return null }
+}
+
+export function deleteTransferSnapshot(filename: string): boolean {
+  validateFilename(filename)
+  const path = join(transferDir(), filename)
+  if (!existsSync(path)) return false
+  try { unlinkSync(path); return true } catch { return false }
+}

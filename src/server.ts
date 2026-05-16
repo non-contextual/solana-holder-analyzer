@@ -6,7 +6,8 @@ import { join }     from 'path'
 import { readFileSync } from 'fs'
 import { analyzeToken }    from './analyzer'
 import { runTransferScan } from './transfer-scan'
-import { saveSnapshot, listSnapshots, listAllSnapshots, loadSnapshot, deleteSnapshot } from './storage'
+import { saveSnapshot, listSnapshots, listAllSnapshots, loadSnapshot, deleteSnapshot,
+         saveTransferSnapshot, listTransferSnapshots, loadTransferSnapshot, deleteTransferSnapshot } from './storage'
 import { setupProxy }      from './proxy'
 import type { SseEvent }   from './types'
 
@@ -27,7 +28,19 @@ checkEnv()
 
 const app = new Hono()
 
-app.use('/*', cors())
+// CORS: only same-origin / localhost variants. The previous `cors()` default
+// allowed any origin, which means a random website could reach into a developer's
+// running instance and POST/DELETE snapshots.
+app.use('/*', cors({
+  origin: (origin: string): string | null => {
+    if (!origin) return origin              // same-origin (no Origin header) is allowed
+    try {
+      const h = new URL(origin).hostname
+      if (h === 'localhost' || h === '127.0.0.1' || h === '::1') return origin
+    } catch { /* fallthrough */ }
+    return null
+  },
+}))
 
 // Serve the single-file frontend
 app.get('/', (c) => {
@@ -81,11 +94,14 @@ app.get('/api/analyze', async (c) => {
 // GET /api/transfers?wallets=a,b&from=ts&to=ts&depth=2&expand=15
 app.get('/api/transfers', async (c) => {
   const walletsParam = c.req.query('wallets')
-  const fromTs  = parseInt(c.req.query('from') ?? '0', 10)
-  const toTs    = parseInt(c.req.query('to')   ?? String(Math.floor(Date.now() / 1000)), 10)
-  const depth   = Math.min(parseInt(c.req.query('depth')  ?? '1', 10), 3)
-  const expand  = Math.min(parseInt(c.req.query('expand') ?? '15', 10), 30)
-  const apiKey  = process.env.HELIUS_API_KEY ?? ''
+  const fromTs     = parseInt(c.req.query('from') ?? '0', 10)
+  const toTs       = parseInt(c.req.query('to')   ?? String(Math.floor(Date.now() / 1000)), 10)
+  const depth      = Math.min(parseInt(c.req.query('depth')  ?? '1', 10), 3)
+  const expand     = Math.min(parseInt(c.req.query('expand') ?? '15', 10), 30)
+  const targetMint = c.req.query('targetMint')?.trim() || undefined
+  const apiKey     = process.env.HELIUS_API_KEY ?? ''
+  const rpcUrl     = process.env.HELIUS_RPC_URL
+    ?? (apiKey ? `https://mainnet.helius-rpc.com/?api-key=${apiKey}` : undefined)
 
   if (!walletsParam) return c.json({ error: 'wallets param required' }, 400)
   if (!apiKey)       return c.json({ error: 'HELIUS_API_KEY not set' }, 500)
@@ -95,12 +111,18 @@ app.get('/api/transfers', async (c) => {
   const { readable, writable } = new TransformStream<Uint8Array>()
   const writer  = writable.getWriter()
   const encoder = new TextEncoder()
+  // Tie scan lifetime to the client connection. When the EventSource closes
+  // (tab navigates away, user hits Abort, etc.) Hono aborts c.req.raw.signal,
+  // which we forward into the scan so it stops fetching Helius pages instead
+  // of churning through the remaining BFS layers in the background.
+  const scanAbort = new AbortController()
+  c.req.raw.signal?.addEventListener('abort', () => scanAbort.abort())
 
   function send(event: unknown) {
     writer.write(encoder.encode(`data: ${JSON.stringify(event)}\n\n`)).catch(() => {})
   }
 
-  runTransferScan({ wallets, fromTime: fromTs, toTime: toTs, maxDepth: depth, maxNewPerLayer: expand, apiKey }, send)
+  runTransferScan({ wallets, fromTime: fromTs, toTime: toTs, maxDepth: depth, maxNewPerLayer: expand, apiKey, targetMint, rpcUrl, abortSig: scanAbort.signal }, send)
     .catch((err) => send({ type: 'scan_error', message: err instanceof Error ? err.message : String(err) }))
     .finally(() => writer.close().catch(() => {}))
 
@@ -140,6 +162,32 @@ app.get('/api/snapshots/:mint/:filename', (c) => {
 app.delete('/api/snapshots/:mint/:filename', (c) => {
   const { mint, filename } = c.req.param()
   const ok = deleteSnapshot(mint, filename)
+  return c.json({ ok })
+})
+
+// ── Transfer scan snapshot API ────────────────────────────────────────────────
+
+app.post('/api/transfer-snapshots', async (c) => {
+  const body = await c.req.json().catch(() => null)
+  if (!body) return c.json({ error: 'invalid body' }, 400)
+  const filename = saveTransferSnapshot(body)
+  return c.json({ ok: true, filename })
+})
+
+app.get('/api/transfer-snapshots', (c) => {
+  return c.json(listTransferSnapshots())
+})
+
+app.get('/api/transfer-snapshots/:filename', (c) => {
+  const { filename } = c.req.param()
+  const snap = loadTransferSnapshot(filename)
+  if (!snap) return c.json({ error: 'not found' }, 404)
+  return c.json(snap)
+})
+
+app.delete('/api/transfer-snapshots/:filename', (c) => {
+  const { filename } = c.req.param()
+  const ok = deleteTransferSnapshot(filename)
   return c.json({ ok })
 })
 

@@ -2,113 +2,177 @@
 //
 // Layer 0: seed wallets (from token analysis)
 // Layer 1: counterparties discovered in Layer 0's transfers
-// Layer 2: counterparties discovered in Layer 1's NEW transfers
 // ...
 //
-// At each layer, expand only the top maxNewPerLayer addresses by transfer volume
-// to prevent graph explosion. Programs/DEX routers are excluded from expansion.
+// Design goals:
+// - Progressive: emits scan_partial after each layer for live rendering
+// - Cheap: per-layer page limits reduce Helius API calls drastically
+// - Signal: USD-normalized scoring + target-token ×1000 bias for BFS
+// - Clean: dynamic program detection + real price lookup drops spam
+// - Priced: DexScreener batch lookup after BFS gives real USD values
+//   and kills ghost nodes from no-liquidity spam token senders
 
-import { fetchWalletTransfers, isProgram, symbolFor, RawTransfer } from './helius'
+import { fetchWalletTransfers, isProgram, tokenUsdScore, PAGE_SIZE, RawTransfer } from './helius'
+import { getAccountTypes } from './solana'
+import { getWalletBalances } from './okx'
+import { getTokenPrices, realUsdScore, TokenPriceInfo } from './prices'
+import { analyzeAllWallets, WalletIntelligence } from './labels'
 
 export interface TransferScanOptions {
-  wallets:         string[]   // seed wallets
-  fromTime:        number     // unix seconds
-  toTime:          number     // unix seconds
-  maxDepth:        number     // 1, 2, or 3
-  maxNewPerLayer:  number     // max new wallets to expand per layer (default 15)
-  apiKey:          string
+  wallets:        string[]
+  fromTime:       number
+  toTime:         number
+  maxDepth:       number
+  maxNewPerLayer: number
+  apiKey:         string
+  targetMint?:    string
+  rpcUrl?:        string
+  abortSig?:      AbortSignal
 }
 
 export interface GraphNode {
   address: string
-  label:   string   // short display name or known program name
-  layer:   number   // 0 = seed, 1, 2, ...
+  label:   string
+  layer:   number
   isSeed:  boolean
 }
 
 export interface GraphEdge {
-  from:      string
-  to:        string
-  mint:      string
-  symbol:    string
-  amount:    number   // net flow: positive = from→to
-  txCount:   number
+  from:     string
+  to:       string
+  mint:     string
+  symbol:   string
+  amount:   number    // net flow in token units
+  usdScore: number    // real USD value (using DexScreener prices where known)
+  txCount:  number
+}
+
+export interface WalletOkxData {
+  address:        string
+  portfolioUsd:   number
+  splUsd:         number
+  targetTokenUsd: number | null
+  targetTokenPct: number | null
 }
 
 export interface TransferGraph {
-  nodes:     GraphNode[]
-  edges:     GraphEdge[]           // aggregated net flows between nodes
-  transfers: RawTransfer[]         // all raw transfers (for time-range slider)
-  timeRange: { min: number; max: number }
+  nodes:      GraphNode[]
+  edges:      GraphEdge[]
+  transfers:  RawTransfer[]
+  timeRange:  { min: number; max: number }
+  targetMint: string | undefined
 }
+
+// Sentinel layer for ghost/external nodes (discovered after BFS via priced edges).
+// The UI checks `n.layer >= 99` to apply external styling (smaller radius, dimmer
+// opacity, "External" label, outer-ring layout) and to honor the Ext: on/off toggle.
+// Keep this in sync with the same constant on the client side.
+export const EXTERNAL_LAYER = 99
 
 // SSE events
 export type ScanEvent =
-  | { type: 'scan_layer';    layer: number; count: number; total: number }
-  | { type: 'scan_wallet';   address: string; layer: number; done: number; total: number }
-  | { type: 'scan_expand';   layer: number; newCount: number; discovered: number }
-  | { type: 'scan_graph';    graph: TransferGraph }
-  | { type: 'scan_error';    message: string }
+  | { type: 'scan_layer';   layer: number; count: number; total: number }
+  | { type: 'scan_wallet';  address: string; layer: number; done: number; total: number }
+  | { type: 'scan_expand';  layer: number; newCount: number; discovered: number }
+  | { type: 'scan_partial'; layer: number; nodes: GraphNode[]; edges: GraphEdge[] }
+  | { type: 'scan_prices';  prices: Record<string, { price: number; liquidity: number; symbol: string }> }
+  | { type: 'scan_graph';   graph: TransferGraph }
+  | { type: 'wallet_okx';   data: WalletOkxData }
+  | { type: 'scan_suspects'; suspects: Array<{ address: string; score: number; reason: string }> }
+  | { type: 'wallet_intel'; intel: Record<string, WalletIntelligence> }   // entity labels + behavior tags
+  | { type: 'scan_hot';     address: string; layer: number; counterparties: number; txCount: number; cappedPages: boolean }
+  | { type: 'scan_error';   message: string }
+
+const LAYER_MAX_PAGES = [10, 3, 2, 1]
+
+// "High-fan-out wallet" detector. Threshold of unique counterparties seen for
+// a single scanned wallet in its layer's transfers. CEX hot wallets, market-
+// maker bots, aggregator routers, and airdrop dispensers all blow through this
+// while real users / whales / traders virtually never do (a human with 200+
+// distinct counterparties in a multi-day window is doing automated work). When
+// a frontier wallet crosses this line, we keep it in the graph but refuse to
+// use its counterparty list to spawn the next BFS layer — that branch is pure
+// API spend with no signal.
+const HOT_UNIQUE_CP_THRESHOLD = 200
 
 function shortAddr(a: string): string {
   return a.slice(0, 6) + '…' + a.slice(-4)
 }
 
-// Aggregate volume per counterparty for a given wallet's transfers
-function counterpartyVolumes(
+// BFS counterparty scoring: USD-normalized + target-token ×1000 bias.
+// Uses the heuristic tokenUsdScore during scanning (price data not yet available),
+// then the graph is rebuilt with real prices after the DexScreener lookup.
+function counterpartyScores(
   walletAddr: string,
-  transfers: RawTransfer[],
+  transfers:  RawTransfer[],
+  targetMint: string | undefined,
 ): Map<string, number> {
-  const vols = new Map<string, number>()
+  const scores = new Map<string, number>()
   for (const t of transfers) {
     const other = t.from === walletAddr ? t.to : t.from
     if (!other || other === walletAddr) continue
-    // Weight stablecoins and SOL by amount (treat as ~$1/unit for simplicity)
-    vols.set(other, (vols.get(other) ?? 0) + t.amount)
+    let score = tokenUsdScore(t.mint, t.amount)
+    if (targetMint && t.mint === targetMint) score = Math.max(score, 1) * 1000
+    scores.set(other, (scores.get(other) ?? 0) + score)
   }
-  return vols
+  return scores
 }
 
-// Build deduplicated edge map: (from,to,mint) → {amount, txCount}
+// Build edges with real USD scores from DexScreener prices.
 function buildEdges(
   allTransfers: RawTransfer[],
-  nodeSet: Set<string>,
+  nodeSet:      Set<string>,
+  prices:       Map<string, TokenPriceInfo>,
+  targetMint:   string | undefined,
 ): GraphEdge[] {
-  // key: `from|to|mint` normalized (smaller addr first for dedup)
-  const edgeMap = new Map<string, { a: string; b: string; mint: string; symbol: string; flow: number; txCount: number }>()
+  const edgeMap = new Map<string, {
+    a: string; b: string; mint: string; symbol: string
+    flow: number; usdFlow: number; txCount: number
+  }>()
 
   for (const t of allTransfers) {
-    // Only include edges where at least one endpoint is a tracked node
     if (!nodeSet.has(t.from) && !nodeSet.has(t.to)) continue
-
-    // Dedup key uses lexicographic order so (X→Y) and (Y→X) collapse onto the
-    // same edge regardless of which direction came first. The `sign` field
-    // tracks net direction: +1 if this transfer matches the canonical
-    // lex-ordered direction, -1 if it's the reverse. Net flow is the signed
-    // sum; the absolute value is the magnitude. The final emit step at the
-    // bottom of this function flips `from`/`to` based on the sign so the
-    // emitted edge always points in the dominant net-flow direction.
-    const [a, b, sign] = t.from < t.to
-      ? [t.from, t.to, 1]
-      : [t.to, t.from, -1]
-
+    const [a, b, sign] = t.from < t.to ? [t.from, t.to, 1] : [t.to, t.from, -1]
     const key = `${a}|${b}|${t.mint}`
-    const existing = edgeMap.get(key)
-    if (existing) {
-      existing.flow     += t.amount * sign
-      existing.txCount  += 1
-    } else {
-      edgeMap.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, txCount: 1 })
-    }
+    const usd = realUsdScore(t.mint, t.amount, prices, targetMint)
+    const ex  = edgeMap.get(key)
+    if (ex) { ex.flow += t.amount * sign; ex.usdFlow += usd; ex.txCount++ }
+    else edgeMap.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, usdFlow: usd, txCount: 1 })
   }
 
   return [...edgeMap.values()].map(e => ({
-    from:    e.flow >= 0 ? e.a : e.b,
-    to:      e.flow >= 0 ? e.b : e.a,
-    mint:    e.mint,
-    symbol:  e.symbol,
-    amount:  Math.abs(e.flow),
-    txCount: e.txCount,
+    from:     e.flow >= 0 ? e.a : e.b,
+    to:       e.flow >= 0 ? e.b : e.a,
+    mint:     e.mint,
+    symbol:   e.symbol,
+    amount:   Math.abs(e.flow),
+    usdScore: e.usdFlow,
+    txCount:  e.txCount,
+  }))
+}
+
+// Partial graph during scan uses heuristic scores (price data not yet available)
+function buildEdgesHeuristic(
+  allTransfers: RawTransfer[],
+  nodeSet:      Set<string>,
+  targetMint:   string | undefined,
+): GraphEdge[] {
+  const edgeMap = new Map<string, {
+    a: string; b: string; mint: string; symbol: string
+    flow: number; usdFlow: number; txCount: number
+  }>()
+  for (const t of allTransfers) {
+    if (!nodeSet.has(t.from) && !nodeSet.has(t.to)) continue
+    const [a, b, sign] = t.from < t.to ? [t.from, t.to, 1] : [t.to, t.from, -1]
+    const key = `${a}|${b}|${t.mint}`
+    const usd = tokenUsdScore(t.mint, t.amount) || (targetMint && t.mint === targetMint ? t.amount : 0)
+    const ex  = edgeMap.get(key)
+    if (ex) { ex.flow += t.amount * sign; ex.usdFlow += usd; ex.txCount++ }
+    else edgeMap.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, usdFlow: usd, txCount: 1 })
+  }
+  return [...edgeMap.values()].map(e => ({
+    from: e.flow >= 0 ? e.a : e.b, to: e.flow >= 0 ? e.b : e.a,
+    mint: e.mint, symbol: e.symbol, amount: Math.abs(e.flow), usdScore: e.usdFlow, txCount: e.txCount,
   }))
 }
 
@@ -124,13 +188,12 @@ export async function runTransferScan(
   opts:    TransferScanOptions,
   onEvent: (e: ScanEvent) => void,
 ): Promise<void> {
-  const { wallets, fromTime, toTime, maxDepth, maxNewPerLayer, apiKey } = opts
+  const { wallets, fromTime, toTime, maxDepth, maxNewPerLayer, apiKey, targetMint, rpcUrl, abortSig } = opts
 
-  const visited    = new Set<string>()   // addresses already scanned
+  const visited    = new Set<string>()
   const allTransfers: RawTransfer[] = []
   const nodeMap    = new Map<string, GraphNode>()
 
-  // Seed nodes (layer 0)
   for (const addr of wallets) {
     visited.add(addr)
     nodeMap.set(addr, { address: addr, label: shortAddr(addr), layer: 0, isSeed: true })
@@ -139,46 +202,147 @@ export async function runTransferScan(
   let frontier = [...wallets]
 
   for (let layer = 0; layer <= maxDepth && frontier.length > 0; layer++) {
+    if (abortSig?.aborted) return
     onEvent({ type: 'scan_layer', layer, count: 0, total: frontier.length })
-
     const layerTransfers: RawTransfer[] = []
     let done = 0
+    const maxPages = LAYER_MAX_PAGES[Math.min(layer, LAYER_MAX_PAGES.length - 1)]
 
-    // Scan each wallet in this layer's frontier
-    await pMap(frontier, async (addr, _) => {
+    await pMap(frontier, async (addr) => {
+      if (abortSig?.aborted) return
       onEvent({ type: 'scan_wallet', address: addr, layer, done, total: frontier.length })
       try {
-        const txs = await fetchWalletTransfers(addr, fromTime, toTime, apiKey)
+        const txs = await fetchWalletTransfers(addr, fromTime, toTime, apiKey, undefined, maxPages, abortSig)
         layerTransfers.push(...txs)
         allTransfers.push(...txs)
       } catch (err) {
-        // Non-fatal: log and continue
         console.warn(`[scan] ${addr} failed:`, (err as Error).message)
       }
       done++
       onEvent({ type: 'scan_wallet', address: addr, layer, done, total: frontier.length })
     }, SCAN_CONCURRENCY)
+    if (abortSig?.aborted) return
 
-    // Discover new addresses from this layer's transfers
+    // Emit partial graph with heuristic prices for progressive rendering
+    const partialNodeSet = new Set(nodeMap.keys())
+    onEvent({
+      type:  'scan_partial',
+      layer,
+      nodes: [...nodeMap.values()],
+      edges: buildEdgesHeuristic(allTransfers, partialNodeSet, targetMint),
+    })
+
     if (layer < maxDepth) {
-      // Aggregate volume per counterparty across all scanned wallets in this layer
-      const volMap = new Map<string, number>()
+      // ── Auto-skip high-fan-out wallets + AMM pools ─────────────────────────
+      // No extra API calls: detection runs entirely against the transfers we
+      // already pulled this layer. Two patterns are filtered:
+      //   1. CEX hot wallets / market makers / routers — many unique counterparties
+      //      or hit page cap with broad fan-out.
+      //   2. AMM pools / bonding curves — in/out tx counts balanced (each swap
+      //      arrives and leaves once), counterparty sets overlap heavily, and
+      //      only 2-3 token mints appear (typically base/quote). The static
+      //      PROGRAM_OWNERS table only knows ~13 specific pools; this heuristic
+      //      catches the long tail (new DEXs, custom Bison/Solfi/etc. pools)
+      //      without needing the list to be maintained.
+      // Both kinds get kept in the graph as nodes but never seed the next BFS
+      // layer — their counterparty lists are pure noise from the user's POV.
+      const pageCap = maxPages * PAGE_SIZE
+      const skipExpansion = new Set<string>()
       for (const addr of frontier) {
-        const vols = counterpartyVolumes(addr, layerTransfers)
-        for (const [other, vol] of vols) {
-          if (visited.has(other)) continue
-          if (isProgram(other)) continue
-          volMap.set(other, (volMap.get(other) ?? 0) + vol)
+        const inCps = new Set<string>(), outCps = new Set<string>()
+        const inMints = new Set<string>(), outMints = new Set<string>()
+        let inCount = 0, outCount = 0
+        for (const t of layerTransfers) {
+          if (t.from === addr) { outCps.add(t.to);   outMints.add(t.mint); outCount++ }
+          else if (t.to === addr) { inCps.add(t.from); inMints.add(t.mint); inCount++ }
+        }
+        const total      = inCount + outCount
+        const allCps     = new Set([...inCps, ...outCps])
+        const cappedPages = total >= pageCap
+
+        // (1) High fan-out
+        if (allCps.size >= HOT_UNIQUE_CP_THRESHOLD || (cappedPages && allCps.size >= 50)) {
+          skipExpansion.add(addr)
+          onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages })
+          console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} hot cps=${allCps.size} tx=${total}${cappedPages ? ' (page-capped)' : ''}`)
+          continue
+        }
+
+        // (2) Pool signature: balanced flow + symmetric counterparties + narrow mint set.
+        // Require non-trivial volume so we don't flag tiny 1-in/1-out wallets.
+        if (inCount >= 5 && outCount >= 5) {
+          const ratio = Math.min(inCount, outCount) / Math.max(inCount, outCount)
+          // Jaccard of inCps and outCps — high overlap means the same wallets
+          // are both depositing into and withdrawing from this address.
+          let overlap = 0
+          for (const a of inCps) if (outCps.has(a)) overlap++
+          const union = new Set([...inCps, ...outCps]).size
+          const jaccard = union > 0 ? overlap / union : 0
+          // Pool token mix: most AMMs see just base + quote (often wSOL/USDC).
+          const distinctMints = new Set([...inMints, ...outMints]).size
+          if (ratio >= 0.7 && jaccard >= 0.5 && distinctMints <= 4) {
+            skipExpansion.add(addr)
+            onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
+            console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} pool-like in/out=${inCount}/${outCount} jaccard=${jaccard.toFixed(2)} mints=${distinctMints}`)
+          }
         }
       }
 
-      // Pick top maxNewPerLayer by volume
-      const newFrontier = [...volMap.entries()]
+      const scoreMap = new Map<string, number>()
+      for (const addr of frontier) {
+        if (skipExpansion.has(addr)) continue
+        const scores = counterpartyScores(addr, layerTransfers, targetMint)
+        for (const [other, score] of scores) {
+          if (visited.has(other)) continue
+          if (isProgram(other)) continue
+          scoreMap.set(other, (scoreMap.get(other) ?? 0) + score)
+        }
+      }
+
+      // Candidate-level pool prefilter: even before we spend Helius pages
+      // promoting a candidate, look at how it appeared inside this layer's
+      // transfers. A pool serving the current frontier shows the same
+      // in/out symmetry signature as a scanned pool, just measured from one
+      // side. Catches pools that would otherwise enter the next BFS layer
+      // and waste a full page allocation (e.g. 65ZHSArs… at layer 3).
+      for (const cand of [...scoreMap.keys()]) {
+        const inCps = new Set<string>(), outCps = new Set<string>()
+        const mints = new Set<string>()
+        let inCount = 0, outCount = 0
+        for (const t of layerTransfers) {
+          if (t.from === cand) { outCps.add(t.to);   mints.add(t.mint); outCount++ }
+          else if (t.to === cand) { inCps.add(t.from); mints.add(t.mint); inCount++ }
+        }
+        if (inCount < 5 || outCount < 5) continue
+        const ratio = Math.min(inCount, outCount) / Math.max(inCount, outCount)
+        let overlap = 0
+        for (const a of inCps) if (outCps.has(a)) overlap++
+        const union = new Set([...inCps, ...outCps]).size
+        const jaccard = union > 0 ? overlap / union : 0
+        if (ratio >= 0.7 && jaccard >= 0.5 && mints.size <= 4) {
+          scoreMap.delete(cand)
+          console.log(`[scan] prefilter-pool ${cand.slice(0,8)}… layer=${layer+1} in/out=${inCount}/${outCount} jaccard=${jaccard.toFixed(2)} mints=${mints.size}`)
+        }
+      }
+
+      if (rpcUrl && scoreMap.size > 0) {
+        try {
+          const types = await getAccountTypes(rpcUrl, [...scoreMap.keys()])
+          for (const [addr, type] of types) {
+            if (type === 'program' || type === 'lp' || type === 'bonding_curve') scoreMap.delete(addr)
+            // Missing/closed accounts: drop. Those are ephemeral PDAs that BFS
+            // shouldn't waste a slot on.
+            if (type === null) scoreMap.delete(addr)
+          }
+        } catch { /* fall back to static list */ }
+      }
+
+      const newFrontier = [...scoreMap.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, maxNewPerLayer)
         .map(([addr]) => addr)
 
-      onEvent({ type: 'scan_expand', layer, newCount: newFrontier.length, discovered: volMap.size })
+      onEvent({ type: 'scan_expand', layer, newCount: newFrontier.length, discovered: scoreMap.size })
 
       for (const addr of newFrontier) {
         visited.add(addr)
@@ -190,18 +354,54 @@ export async function runTransferScan(
     }
   }
 
-  // Also add external nodes (not scanned but appear as endpoints in transfers)
+  // ── Price lookup (DexScreener batch, free, no auth) ─────────────────────────
+  // After BFS: collect all unique mints, fetch real prices once.
+  // Tokens with no DexScreener pair = no liquidity = spam candidates.
+  const uniqueMints = [...new Set(allTransfers.map(t => t.mint))]
+  let tokenPrices = new Map<string, TokenPriceInfo>()
+  try {
+    tokenPrices = await getTokenPrices(uniqueMints)
+    onEvent({
+      type:   'scan_prices',
+      prices: Object.fromEntries(
+        [...tokenPrices.entries()].map(([m, v]) => [m, v])
+      ),
+    })
+    console.log(`[scan] prices fetched: ${tokenPrices.size}/${uniqueMints.length} mints priced`)
+  } catch (err) {
+    console.warn('[scan] price lookup failed, using heuristics:', (err as Error).message)
+  }
+
+  // ── Ghost nodes: only add if ≥2 priced-transfer edges OR target token ───────
+  // "Priced transfer" = the token has real liquidity on DexScreener.
+  // This eliminates spam senders who sent no-liquidity tokens to many wallets.
   const nodeSet = new Set(nodeMap.keys())
+  const extCount  = new Map<string, number>()  // appearances in priced transfers
+  const extTarget = new Set<string>()
+
   for (const t of allTransfers) {
+    const isTarget = targetMint && t.mint === targetMint
+    const usd      = realUsdScore(t.mint, t.amount, tokenPrices, targetMint)
+    // Skip no-value transfers from ghost node counting (spam prevention).
+    // Target token and SOL/stables always count regardless of DexScreener.
+    if (!isTarget && usd === 0) continue
+
     for (const addr of [t.from, t.to]) {
-      if (!nodeMap.has(addr)) {
-        nodeMap.set(addr, { address: addr, label: shortAddr(addr), layer: maxDepth + 1, isSeed: false })
-        nodeSet.add(addr)
-      }
+      if (nodeSet.has(addr)) continue
+      extCount.set(addr, (extCount.get(addr) ?? 0) + 1)
+      if (isTarget) extTarget.add(addr)
     }
   }
 
-  const edges = buildEdges(allTransfers, nodeSet)
+  for (const [addr, count] of extCount) {
+    if (count >= 2 || extTarget.has(addr)) {
+      nodeMap.set(addr, { address: addr, label: shortAddr(addr), layer: EXTERNAL_LAYER, isSeed: false })
+      nodeSet.add(addr)
+    }
+  }
+
+  // Build final edges with real USD scores
+  const edges = buildEdges(allTransfers, nodeSet, tokenPrices, targetMint)
 
   const timestamps = allTransfers.map(t => t.timestamp)
   const graph: TransferGraph = {
@@ -212,7 +412,67 @@ export async function runTransferScan(
       min: timestamps.length ? Math.min(...timestamps) : fromTime,
       max: timestamps.length ? Math.max(...timestamps) : toTime,
     },
+    targetMint,
+  }
+  onEvent({ type: 'scan_graph', graph })
+
+  // ── Wallet intelligence: entity labels + behavioral analysis ─────────────────
+  // Static known-address registry + transfer-pattern heuristics.
+  // Emitted immediately so the UI can label nodes as soon as the graph appears.
+  try {
+    const intel = await analyzeAllWallets([...nodeMap.values()], allTransfers)
+    if (intel.size > 0) {
+      onEvent({ type: 'wallet_intel', intel: Object.fromEntries(intel) })
+      const flagged = [...intel.values()].filter(w => w.riskScore > 40).length
+      console.log(`[scan] wallet intel: ${intel.size} wallets analyzed, ${flagged} flagged`)
+    }
+  } catch (err) {
+    console.warn('[scan] wallet intel failed:', (err as Error).message)
   }
 
-  onEvent({ type: 'scan_graph', graph })
+  // ── OKX enrichment (optional, requires OKX API keys) ────────────────────────
+  const hasOkx = !!(process.env.OKX_API_KEY && process.env.OKX_PASSPHRASE && process.env.OKX_SECRET_KEY)
+  if (hasOkx && targetMint) {
+    const discoveredWallets = [...nodeMap.values()]
+      .filter(n => !n.isSeed && n.layer <= maxDepth)
+      .map(n => n.address)
+
+    const okxResults: WalletOkxData[] = []
+
+    for (const addr of discoveredWallets) {
+      if (abortSig?.aborted) return
+      try {
+        const wb = await getWalletBalances(addr, targetMint)
+        const targetTokenPct = wb.targetBalanceUsd != null && wb.splTotalUsd > 0
+          ? (wb.targetBalanceUsd / wb.splTotalUsd) * 100
+          : null
+        const data: WalletOkxData = {
+          address:        addr,
+          portfolioUsd:   wb.portfolioTotalUsd,
+          splUsd:         wb.splTotalUsd,
+          targetTokenUsd: wb.targetBalanceUsd,
+          targetTokenPct,
+        }
+        okxResults.push(data)
+        onEvent({ type: 'wallet_okx', data })
+      } catch (err) {
+        console.warn(`[scan-okx] ${addr.slice(0, 8)} failed:`, (err as Error).message)
+      }
+    }
+
+    const suspects = okxResults
+      .filter(w => w.targetTokenUsd != null && w.targetTokenUsd > 1)
+      .map(w => {
+        let score = 0
+        const reasons: string[] = []
+        if (w.targetTokenPct != null && w.targetTokenPct > 60) { score += 3; reasons.push(`${w.targetTokenPct.toFixed(0)}% of SPL in target`) }
+        if (w.targetTokenPct != null && w.targetTokenPct > 30) { score += 1 }
+        if (w.portfolioUsd < 5000 && w.targetTokenUsd != null && w.targetTokenUsd > 100) { score += 2; reasons.push('small wallet, concentrated position') }
+        return { address: w.address, score, reason: reasons.join(' · ') }
+      })
+      .filter(s => s.score >= 2)
+      .sort((a, b) => b.score - a.score)
+
+    if (suspects.length > 0) onEvent({ type: 'scan_suspects', suspects })
+  }
 }

@@ -1,8 +1,14 @@
-// Per-domain proxy routing — only OKX goes through HTTPS_PROXY, Helius goes direct
+// Per-domain proxy routing.
+//
+// Helius is reachable directly from mainland China so we deliberately keep it
+// off the proxy hop to save a round-trip.
+//
+// OKX and DexScreener are not, so they route through HTTPS_PROXY when set.
+// (DexScreener was silently returning empty price maps before we added it here.)
 
 import { Agent, Dispatcher, ProxyAgent } from 'undici'
 
-const PROXY_HOSTS = ['web3.okx.com', 'www.okx.com']
+const PROXY_HOSTS = ['web3.okx.com', 'www.okx.com', 'api.dexscreener.com']
 
 class HostRoutingDispatcher extends Dispatcher {
   constructor(

@@ -269,7 +269,15 @@ export async function analyzeAllWallets(
 
   const result = new Map<string, WalletIntelligence>()
   for (const node of nodes) {
-    if (node.layer > 3) continue   // skip deep external nodes (layer 99 sentinel)
+    // Layer 99 (external) nodes are usually transient — most have just 1-2
+    // transfers, not enough for meaningful behavior signal. But they can be
+    // known CEX/bridge addresses (static label), and any layer-99 node that
+    // touched 5+ transfers in this scan window is worth analyzing because
+    // that's where "CEX deposit one hop from the seed" patterns live.
+    if (node.layer > 3) {
+      const txs = byAddress.get(node.address) ?? []
+      if (!KNOWN_ENTITIES[node.address] && txs.length < 5) continue
+    }
     const intel = analyzeWallet(node.address, transfers, node.layer, byAddress)
     if (intel.riskScore > 0 || intel.staticLabel || intel.behaviorTags.length) {
       result.set(node.address, intel)

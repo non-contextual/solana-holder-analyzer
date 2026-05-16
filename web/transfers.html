@@ -203,6 +203,34 @@
   .chain-hop { background: var(--surface-2); padding: 4px 8px; margin: 6px 0; font-size: 10px; color: var(--muted); border-left: 2px solid var(--blue); }
   .chain-badge { font-family: var(--font-mono); font-size: 9px; padding: 1px 5px; border: 1px solid; margin-left: 6px; letter-spacing: 0.02em; }
 
+  /* Sidebar section dividers — group flat rows into scannable cards. */
+  .detail-section { margin-top: 14px; }
+  .detail-section-head { font-family: var(--font-mono); font-size: 9.5px; color: var(--subtle);
+                         letter-spacing: 0.1em; text-transform: uppercase; padding: 0 0 6px;
+                         border-bottom: 1px solid var(--border); margin-bottom: 6px; }
+  .detail-section-head .detail-section-extra { color: var(--muted); float: right; font-weight: 400; }
+  .detail-more { margin-top: 8px; }
+  .detail-more > summary { cursor: pointer; font-family: var(--font-mono); font-size: 10px;
+                           color: var(--muted); letter-spacing: 0.06em; padding: 4px 0;
+                           list-style: none; user-select: none; }
+  .detail-more > summary::-webkit-details-marker { display: none; }
+  .detail-more > summary::before { content: '▸ '; color: var(--subtle); }
+  .detail-more[open] > summary::before { content: '▾ '; color: var(--subtle); }
+  .detail-more[open] > summary { color: var(--text); }
+
+  /* Edge-click panel pieces. Reuses .node-detail container so the slide-in
+     position is consistent with node clicks. Header shows direction + mint. */
+  .edge-head { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+  .edge-pair { display: flex; align-items: center; gap: 6px; font-family: var(--font-data); font-size: 11px; word-break: break-all; }
+  .edge-pair .edge-arrow { color: var(--accent); font-size: 14px; flex-shrink: 0; }
+  .edge-pair .edge-addr  { color: var(--text); }
+  .edge-summary { display: grid; grid-template-columns: auto auto; gap: 4px 12px;
+                  padding: 6px 0; border-top: 1px solid var(--border);
+                  border-bottom: 1px solid var(--border);
+                  font-family: var(--font-data); font-size: 11px; }
+  .edge-summary .es-k { color: var(--muted); font-size: 10px; }
+  .edge-summary .es-v { color: var(--text); text-align: right; font-variant-numeric: tabular-nums; }
+
   /* Recap bar — replaces the full settings form once a scan is loaded so the
      graph gets the vertical space it deserves. Click anywhere on it to expand
      the form back for editing or a new scan. */
@@ -762,6 +790,12 @@ function chainSectionHtml(seed, viewer) {
   </div>`
 }
 
+// Render a single key/value row using the existing flat-row style. Kept tight
+// so dense sections like 概览 / 行为分析 stay scannable.
+function detailRow(k, v) {
+  return `<div class="node-detail-row"><span class="node-detail-label">${k}</span><span class="node-detail-val">${v}</span></div>`
+}
+
 function showNodeDetail(n, graphEdges) {
   const inEdges  = graphEdges.filter(e => e.target === n.address)
   const outEdges = graphEdges.filter(e => e.source === n.address)
@@ -775,29 +809,8 @@ function showNodeDetail(n, graphEdges) {
   const sus      = suspects.find(s => s.address === n.address)
 
   const layerWord = n.isSeed ? '种子' : n.layer >= 99 ? '外部（仅 1-2 笔关联）' : `第 ${n.layer} 跳`
-  const rows = [
-    ['位置',  layerWord],
-    ['转入',  `${fmtN(inAmt)}${inUsd > 0 ? `（约 $${fmtN(inUsd)}）` : ''}`],
-    ['转出',  `${fmtN(outAmt)}${outUsd > 0 ? `（约 $${fmtN(outUsd)}）` : ''}`],
-    ['关联',  `${inEdges.length} 个入边 / ${outEdges.length} 个出边`],
-  ]
-  if (hotWallets.has(n.address)) rows.push(['BFS 状态', '已跳过（疑似池子或高频钱包）'])
-  if (intel?.riskScore > 0) rows.push(['风险评分', `${intel.riskScore}/100`])
-  if (intel?.behaviorTags.length) rows.push(['行为标签', intel.behaviorTags.join('、')])
-  if (intel?.stats) {
-    const st = intel.stats
-    if (st.txPerHour  != null) rows.push(['每小时交易', `${st.txPerHour.toFixed(1)} 笔`])
-    if (st.interTxCV  != null) rows.push(['交易间隔 CV', `${st.interTxCV.toFixed(2)} ${st.interTxCV < 0.3 ? '⚠ 机器人节奏' : ''}`])
-    if (st.burstRatio != null) rows.push(['爆发比例', `${(st.burstRatio*100).toFixed(0)}% 在 60 秒窗口内`])
-    if (st.amountCV   != null) rows.push(['金额 CV',   `${st.amountCV.toFixed(2)} ${st.amountCV < 0.2 ? '⚠ 金额固定' : ''}`])
-    if (st.outDegree  != null) rows.push(['出度', `${st.outDegree} 个唯一收款方`])
-  }
-  if (okx) {
-    rows.push(['总持仓', `$${fmtN(okx.portfolioUsd)}`])
-    if (okx.targetTokenUsd) rows.push(['目标代币', `$${fmtN(okx.targetTokenUsd)}（占 SPL ${okx.targetTokenPct?.toFixed(0)}%）`])
-  }
 
-  // Build entity badge HTML
+  // Entity / suspect banner (collapsed when nothing notable).
   let entityBannerHtml = ''
   if (intel?.staticLabel) {
     const c = entityColor(intel.staticLabel.type)
@@ -814,21 +827,128 @@ function showNodeDetail(n, graphEdges) {
     entityBannerHtml = `<div style="background:#F5A62318;border:1px solid #F5A62340;padding:6px 10px;margin-bottom:10px"><span style="color:#F5A623;font-family:var(--font-mono);font-size:10px">↗ High scatter — ${intel.summary}</span></div>`
   }
 
+  // ── 概览 — position + flows + edge counts ─────────────────────────────────
+  const overviewRows = [
+    detailRow('位置', layerWord),
+    detailRow('关联', `${inEdges.length} 个入边 / ${outEdges.length} 个出边`),
+    detailRow('转入', `${fmtN(inAmt)}${inUsd > 0 ? `（约 $${fmtN(inUsd)}）` : ''}`),
+    detailRow('转出', `${fmtN(outAmt)}${outUsd > 0 ? `（约 $${fmtN(outUsd)}）` : ''}`),
+  ]
+  if (hotWallets.has(n.address)) overviewRows.push(detailRow('BFS 状态', '已跳过（疑似池子 / 高频）'))
+  if (okx) {
+    overviewRows.push(detailRow('总持仓', `$${fmtN(okx.portfolioUsd)}`))
+    if (okx.targetTokenUsd) overviewRows.push(detailRow('目标代币', `$${fmtN(okx.targetTokenUsd)}（占 SPL ${okx.targetTokenPct?.toFixed(0)}%）`))
+  }
+
+  // ── 行为分析 — risk + tags up top, detailed CV stats collapsed by default ──
+  let behaviorHtml = ''
+  if (intel && (intel.riskScore > 0 || intel.behaviorTags.length || intel.stats)) {
+    const primary = []
+    if (intel.riskScore > 0)             primary.push(detailRow('风险评分', `${intel.riskScore}/100`))
+    if (intel.behaviorTags.length)       primary.push(detailRow('行为标签', intel.behaviorTags.join('、')))
+    if (intel.stats?.txPerHour != null)  primary.push(detailRow('每小时交易', `${intel.stats.txPerHour.toFixed(1)} 笔`))
+    if (intel.stats?.outDegree != null)  primary.push(detailRow('出度', `${intel.stats.outDegree} 个唯一收款方`))
+
+    const advanced = []
+    const st = intel.stats || {}
+    if (st.interTxCV  != null) advanced.push(detailRow('交易间隔 CV', `${st.interTxCV.toFixed(2)} ${st.interTxCV < 0.3 ? '⚠ 机器人节奏' : ''}`))
+    if (st.burstRatio != null) advanced.push(detailRow('爆发比例', `${(st.burstRatio*100).toFixed(0)}% 在 60 秒窗口内`))
+    if (st.amountCV   != null) advanced.push(detailRow('金额 CV', `${st.amountCV.toFixed(2)} ${st.amountCV < 0.2 ? '⚠ 金额固定' : ''}`))
+
+    behaviorHtml = `<div class="detail-section">
+      <div class="detail-section-head">行为分析</div>
+      ${primary.join('')}
+      ${advanced.length ? `<details class="detail-more"><summary>更多统计</summary>${advanced.join('')}</details>` : ''}
+    </div>`
+  }
+
+  // ── 与种子的连接 — only for non-seed nodes ────────────────────────────────
+  let chainHtml = ''
+  if (!n.isSeed && currentScanWallets.length) {
+    const sections = currentScanWallets.map(seed => chainSectionHtml(seed, n.address)).join('')
+    if (sections.trim()) {
+      chainHtml = `<div class="detail-section">
+        <div class="detail-section-head">与种子的连接</div>
+        ${sections}
+      </div>`
+    }
+  }
+
   document.getElementById('nodeDetailContent').innerHTML = `
     ${isSus ? `<div style="color:var(--red);font-family:var(--font-mono);font-size:10px;margin-bottom:8px">⚠ SUSPECT: ${sus?.reason ?? ''}</div>` : ''}
     ${entityBannerHtml}
-    <div style="font-family:var(--font-mono);font-size:10px;color:var(--muted);margin-bottom:4px">ADDRESS</div>
+    <div class="detail-section-head" style="margin-top:0">地址</div>
     <div class="node-detail-addr">${n.address}
       <button class="node-detail-copy" onclick="navigator.clipboard.writeText('${n.address}').catch(()=>{})">copy</button>
     </div>
-    ${rows.map(([k,v]) => `<div class="node-detail-row"><span class="node-detail-label">${k}</span><span class="node-detail-val">${v}</span></div>`).join('')}
-    ${(!n.isSeed && currentScanWallets.length)
-      ? currentScanWallets.map(seed => chainSectionHtml(seed, n.address)).join('')
-      : ''
-    }
-    <div style="margin-top:10px;display:flex;gap:8px">
+    <div class="detail-section">
+      <div class="detail-section-head">概览</div>
+      ${overviewRows.join('')}
+    </div>
+    ${behaviorHtml}
+    ${chainHtml}
+    <div style="margin-top:14px;display:flex;gap:8px">
       <a href="https://solscan.io/account/${n.address}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">Solscan ↗</a>
       <a href="https://web3.okx.com/portfolio/${n.address}/analysis?chainIndex=501" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">OKX ↗</a>
+    </div>`
+
+  document.getElementById('nodeDetail').classList.add('visible')
+}
+
+// Click an edge → list every raw transfer underlying it, time-ordered, with
+// tx-source badges. Edges in the graph are already aggregated per
+// (from, to, mint), so we re-derive the raw rows from scanGraph.transfers and
+// honor whichever direction each tx actually flowed.
+function showEdgeDetail(simEdge) {
+  const fromAddr = simEdge.source.address ?? simEdge.source
+  const toAddr   = simEdge.target.address ?? simEdge.target
+  const mint     = simEdge.mint
+
+  // Pull raw transfers for this token between this pair, both directions, sorted by time.
+  const rows = (scanGraph?.transfers ?? [])
+    .filter(t => t.mint === mint &&
+      ((t.from === fromAddr && t.to === toAddr) || (t.from === toAddr && t.to === fromAddr)))
+    .sort((a, b) => a.timestamp - b.timestamp)
+
+  // Aggregate per-direction so the header summarizes net flow without forcing
+  // the user to eyeball each row.
+  let fwdCount = 0, bwdCount = 0, fwdAmt = 0, bwdAmt = 0
+  for (const t of rows) {
+    if (t.from === fromAddr) { fwdCount++; fwdAmt += t.amount }
+    else                      { bwdCount++; bwdAmt += t.amount }
+  }
+  const netAmt = fwdAmt - bwdAmt
+  const sym    = symbolForMint(mint)
+  const netUsd = edgeUsdEstimate(mint, simEdge.symbol, Math.abs(netAmt))
+  const grossUsd = edgeUsdEstimate(mint, simEdge.symbol, fwdAmt + bwdAmt)
+
+  const shortFrom = fromAddr.slice(0, 6) + '…' + fromAddr.slice(-4)
+  const shortTo   = toAddr.slice(0, 6)   + '…' + toAddr.slice(-4)
+
+  // Each row reuses the chain-panel styling; we pick leftAddr=fromAddr so the
+  // arrow direction matches the panel header (→ means fromAddr sent).
+  const rowHtml = rows.map(t => chainRowHtml(t, fromAddr, toAddr)).join('')
+
+  document.getElementById('nodeDetailContent').innerHTML = `
+    <div class="detail-section-head" style="margin-top:0">资金流</div>
+    <div class="edge-head">
+      <div class="edge-pair"><span class="edge-addr">${shortFrom}</span><span class="edge-arrow">→</span><span class="edge-addr">${shortTo}</span></div>
+      <div style="font-family:var(--font-mono);font-size:11px;color:var(--muted)">代币 <span style="color:var(--text)">${sym}</span></div>
+    </div>
+    <div class="edge-summary">
+      <span class="es-k">笔数</span><span class="es-v">${rows.length}（${fwdCount} 出 / ${bwdCount} 入）</span>
+      <span class="es-k">${shortFrom} → ${shortTo}</span><span class="es-v">${fmtN(fwdAmt)} ${sym}</span>
+      <span class="es-k">${shortTo} → ${shortFrom}</span><span class="es-v">${fmtN(bwdAmt)} ${sym}</span>
+      <span class="es-k">净流</span><span class="es-v">${netAmt >= 0 ? '→' : '←'} ${fmtN(Math.abs(netAmt))} ${sym}${netUsd > 0.01 ? ` · 约 $${fmtN(netUsd)}` : ''}</span>
+      ${grossUsd > 0.01 ? `<span class="es-k">毛流量</span><span class="es-v">约 $${fmtN(grossUsd)}</span>` : ''}
+    </div>
+    <div class="detail-section" style="margin-top:10px">
+      <div class="detail-section-head">逐笔（时序）<span class="detail-section-extra">${rows.length} 笔</span></div>
+      ${rowHtml || '<div class="chain-empty">未找到原始转账。</div>'}
+    </div>
+    <div style="margin-top:14px;display:flex;gap:8px;flex-wrap:wrap">
+      <a href="https://solscan.io/account/${fromAddr}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">${shortFrom} ↗</a>
+      <a href="https://solscan.io/account/${toAddr}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">${shortTo} ↗</a>
     </div>`
 
   document.getElementById('nodeDetail').classList.add('visible')
@@ -997,6 +1117,30 @@ function renderGraph() {
     .attr('stroke-opacity', 0.5)
     .attr('stroke-width', e => Math.max(0.8, Math.min(6, (e.amount / maxAmt) * 6)))
     .attr('marker-end', e => `url(#arr-${tokenColor(e.symbol).replace('#', '')})`)
+    .style('cursor', 'pointer')
+    // Edge click → list every transfer between this pair for this token,
+    // time-ordered, with tx-source badges. stopPropagation so the svg
+    // background-click handler doesn't immediately wipe the highlight.
+    .on('click', (ev, e) => {
+      ev.stopPropagation()
+      showEdgeDetail(e)
+      // Visual focus: dim everything except this edge + its two endpoints.
+      const aId = e.source.address, bId = e.target.address
+      linkPaths
+        .classed('bright', x => x === e)
+        .classed('dim',    x => x !== e)
+      nodeEls.style('opacity', d => (d.address === aId || d.address === bId) ? 1 : 0.22)
+    })
+    .on('mouseover', (ev, e) => {
+      const tip = document.getElementById('tooltip')
+      const rect = document.getElementById('svgWrap').getBoundingClientRect()
+      tip.style.display = 'block'
+      tip.style.left = (ev.clientX - rect.left + 12) + 'px'
+      tip.style.top  = (ev.clientY - rect.top - 8)  + 'px'
+      const sym = symbolForMint(e.mint)
+      tip.textContent = `${sym} · ${e.txCount} 笔 · 点击查看明细`
+    })
+    .on('mouseleave', () => { document.getElementById('tooltip').style.display = 'none' })
 
   function edgePath(e) {
     const s = e.source, t = e.target

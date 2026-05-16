@@ -16,7 +16,33 @@ import { fetchWalletTransfers, isProgram, tokenUsdScore, PAGE_SIZE, RawTransfer 
 import { getAccountTypes } from './solana'
 import { getWalletBalances } from './okx'
 import { getTokenPrices, realUsdScore, TokenPriceInfo } from './prices'
-import { analyzeAllWallets, WalletIntelligence } from './labels'
+import { analyzeAllWallets, KNOWN_ENTITIES, WalletIntelligence } from './labels'
+
+// Terminal entity types — we surface them as nodes (so the user sees "this
+// money went to Binance") but never fan out from them. Otherwise BFS pulls
+// in tens of thousands of unrelated CEX customers.
+const TERMINAL_ENTITY_TYPES: ReadonlySet<string> = new Set(['cex', 'bridge', 'mixer', 'sanctioned'])
+
+// Behavior tags that, by themselves, justify keeping a node visible even if
+// the address has no priced path back to the seed. Anything outside this set
+// is treated as ambient noise and pruned post-BFS.
+const FEATURE_BEHAVIOR_TAGS: ReadonlySet<string> = new Set([
+  'cex-like', 'mixer-like', 'bot-like', 'scatter', 'high-fan-in', 'high-fan-out',
+])
+
+// USD floors for "this address has a meaningful relationship with the seed".
+// Layer 2-3 are BFS-promoted (already filtered by counterparty scoring) so
+// they get a loose budget. Layer 99 (ghost ring) is much larger and most
+// entries are dust pendants — 1 priced edge of $5-$25 that adds zero
+// investigative value. So layer 99 splits the rule by edge count:
+//   - 2+ priced edges → real bridge in the seed's neighborhood (low floor)
+//   - 1 priced edge   → must be a single large transfer to count (high floor)
+// Feature-flagged nodes (static label or strong behavior tag) bypass these
+// floors and survive on label alone.
+const SEED_PATH_USD_FLOOR_INTERNAL  = 1.0    // layer 2-3 (BFS-promoted)
+const SEED_PATH_USD_FLOOR_GHOST_MUL = 10.0   // layer 99 with ≥2 priced edges
+const SEED_PATH_USD_FLOOR_GHOST_ONE = 100.0  // layer 99 with exactly 1 priced edge
+const GHOST_NODE_USD_FLOOR          = 5.0    // ghost entry gate (was 1.0 in v1)
 
 export interface TransferScanOptions {
   wallets:        string[]
@@ -176,6 +202,45 @@ function buildEdgesHeuristic(
   }))
 }
 
+// Cheap 2-hop seed-reachability check on the priced-edge graph. For the post-
+// BFS noise prune we want to know "does this node have at least $X of priced
+// flow that touches a seed within 2 hops?" Full graph BFS over hundreds of
+// nodes per address would be wasteful — and 2 hops is the relevant horizon
+// because the BFS frontier is bounded by maxDepth anyway. The returned map
+// is keyed by address; the value is the sum of priced USD on edges that lie
+// on a length-1 (direct) or length-2 (via one intermediary) path to any seed.
+function computeSeedConnectedUsd(edges: GraphEdge[], seeds: Set<string>): Map<string, number> {
+  const incidentUsd = new Map<string, Map<string, number>>()  // addr → neighbor → usd
+  for (const e of edges) {
+    if (!e.usdScore || e.usdScore <= 0) continue
+    if (!incidentUsd.has(e.from)) incidentUsd.set(e.from, new Map())
+    if (!incidentUsd.has(e.to))   incidentUsd.set(e.to,   new Map())
+    incidentUsd.get(e.from)!.set(e.to,   (incidentUsd.get(e.from)!.get(e.to)   ?? 0) + e.usdScore)
+    incidentUsd.get(e.to)!.set(e.from,   (incidentUsd.get(e.to)!.get(e.from)   ?? 0) + e.usdScore)
+  }
+
+  const result = new Map<string, number>()
+  for (const [addr, neighbors] of incidentUsd) {
+    if (seeds.has(addr)) continue
+    let usd = 0
+    for (const [nb, edgeUsd] of neighbors) {
+      if (seeds.has(nb)) {
+        usd += edgeUsd                                          // direct seed edge
+      } else {
+        // Indirect: take the minimum of (this addr ↔ nb) and (nb ↔ any seed),
+        // since flow can't exceed the bottleneck. Sum across all paths.
+        const nbN = incidentUsd.get(nb)
+        if (!nbN) continue
+        let nbToSeed = 0
+        for (const [nb2, e2] of nbN) if (seeds.has(nb2)) nbToSeed += e2
+        if (nbToSeed > 0) usd += Math.min(edgeUsd, nbToSeed)
+      }
+    }
+    result.set(addr, usd)
+  }
+  return result
+}
+
 const SCAN_CONCURRENCY = 3
 
 async function pMap<T>(arr: T[], fn: (item: T, idx: number) => Promise<void>, concurrency: number) {
@@ -268,23 +333,64 @@ export async function runTransferScan(
           continue
         }
 
-        // (2) Pool signature: balanced flow + symmetric counterparties + narrow mint set.
-        // Require non-trivial volume so we don't flag tiny 1-in/1-out wallets.
-        if (inCount >= 5 && outCount >= 5) {
-          const ratio = Math.min(inCount, outCount) / Math.max(inCount, outCount)
-          // Jaccard of inCps and outCps — high overlap means the same wallets
-          // are both depositing into and withdrawing from this address.
-          let overlap = 0
-          for (const a of inCps) if (outCps.has(a)) overlap++
-          const union = new Set([...inCps, ...outCps]).size
-          const jaccard = union > 0 ? overlap / union : 0
-          // Pool token mix: most AMMs see just base + quote (often wSOL/USDC).
-          const distinctMints = new Set([...inMints, ...outMints]).size
-          if (ratio >= 0.7 && jaccard >= 0.5 && distinctMints <= 4) {
-            skipExpansion.add(addr)
-            onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
-            console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} pool-like in/out=${inCount}/${outCount} jaccard=${jaccard.toFixed(2)} mints=${distinctMints}`)
-          }
+        const inOutRatio = Math.min(inCount, outCount) / Math.max(inCount, outCount, 1)
+        let overlap = 0
+        for (const a of inCps) if (outCps.has(a)) overlap++
+        const unionSize = new Set([...inCps, ...outCps]).size
+        const jaccard = unionSize > 0 ? overlap / unionSize : 0
+        const distinctMints = new Set([...inMints, ...outMints]).size
+
+        // (2) Classic pool signature: balanced flow + symmetric counterparties + narrow mint set.
+        if (inCount >= 5 && outCount >= 5 && inOutRatio >= 0.7 && jaccard >= 0.5 && distinctMints <= 4) {
+          skipExpansion.add(addr)
+          onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
+          console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} pool-like in/out=${inCount}/${outCount} jaccard=${jaccard.toFixed(2)} mints=${distinctMints}`)
+          continue
+        }
+
+        // (3) Single-leg LP / bonding-curve account: in-cp set == out-cp set,
+        // both of size 1, single mint. Common for Odin.fun-style per-position
+        // PDAs that route every trade through one fixed counterparty. The
+        // classic pool detector misses these because ratio can be way off
+        // (e.g. 75 in vs 226 out), but the "exactly one counterparty on each
+        // side and they're the same address" pattern is conclusive.
+        if (inCps.size === 1 && outCps.size === 1 && jaccard === 1 && distinctMints === 1 && total >= 10) {
+          skipExpansion.add(addr)
+          onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
+          console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} single-leg in/out=${inCount}/${outCount} mint=${[...inMints][0]?.slice(0,6)}`)
+          continue
+        }
+
+        // (4) Router / aggregator hub: many distinct counterparties on each
+        // side, multiple mints, no jaccard overlap (asymmetric flow). The
+        // wallet acts as a multi-token relay rather than a P2P participant.
+        if (allCps.size >= 80 && distinctMints >= 4 && inOutRatio >= 0.4 && jaccard < 0.2) {
+          skipExpansion.add(addr)
+          onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
+          console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} router cps=${allCps.size} mints=${distinctMints} ratio=${inOutRatio.toFixed(2)}`)
+          continue
+        }
+
+        // (5) Market-maker / arb bot: balanced in/out, high overlap of
+        // counterparties (same pool addresses on both sides), wide token mix.
+        // Distinct from a single-pool LP — these touch 5+ different mints.
+        if (inCount >= 30 && outCount >= 30 && inOutRatio >= 0.9 && jaccard >= 0.8 && distinctMints >= 5) {
+          skipExpansion.add(addr)
+          onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
+          console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} mm/arb in/out=${inCount}/${outCount} jaccard=${jaccard.toFixed(2)} mints=${distinctMints}`)
+          continue
+        }
+
+        // (6) Fanout disperser: massively asymmetric outflow to many distinct
+        // recipients. Treasury distributions, reward batchers, airdroppers.
+        // The hot rule already catches anything ≥ 200 cps, but this catches
+        // the ≥100-cp distributors with limited in-flow that the hot rule
+        // misses on the boundary.
+        if (outCps.size >= 100 && outCps.size / (inCount + 1) >= 50) {
+          skipExpansion.add(addr)
+          onEvent({ type: 'scan_hot', address: addr, layer, counterparties: allCps.size, txCount: total, cappedPages: false })
+          console.log(`[scan] skip-expand ${addr.slice(0,8)}… layer=${layer} disperser out=${outCount}→${outCps.size} in=${inCount}`)
+          continue
         }
       }
 
@@ -337,6 +443,24 @@ export async function runTransferScan(
         } catch { /* fall back to static list */ }
       }
 
+      // Static-label terminals (Binance, Wormhole, …): always surface them as
+      // graph nodes so the user can see "the funds went to Binance", but never
+      // expand from them. Fetching a CEX hot wallet's transfer history would
+      // pull in tens of thousands of unrelated user deposits — pure noise.
+      const terminalNodes: string[] = []
+      for (const addr of [...scoreMap.keys()]) {
+        const lbl = KNOWN_ENTITIES[addr]
+        if (lbl && TERMINAL_ENTITY_TYPES.has(lbl.type)) {
+          terminalNodes.push(addr)
+          scoreMap.delete(addr)
+        }
+      }
+      for (const addr of terminalNodes) {
+        visited.add(addr)
+        nodeMap.set(addr, { address: addr, label: shortAddr(addr), layer: layer + 1, isSeed: false })
+        console.log(`[scan] terminal ${addr.slice(0,8)}… ${KNOWN_ENTITIES[addr].name} (no expansion)`)
+      }
+
       const newFrontier = [...scoreMap.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, maxNewPerLayer)
@@ -372,29 +496,30 @@ export async function runTransferScan(
     console.warn('[scan] price lookup failed, using heuristics:', (err as Error).message)
   }
 
-  // ── Ghost nodes: only add if ≥2 priced-transfer edges OR target token ───────
-  // "Priced transfer" = the token has real liquidity on DexScreener.
-  // This eliminates spam senders who sent no-liquidity tokens to many wallets.
+  // ── Ghost nodes: priced USD floor instead of raw appearance count ───────────
+  // Previously "≥2 priced transfers" counted a 0.001 SOL ($0.20) dust drop as
+  // signal. That flooded layer 99 with hundreds of disperser recipients. The
+  // new floor — total priced USD flow ≥ $SEED_PATH_USD_FLOOR — keeps the
+  // visual graph anchored on addresses with real seed-related flow.
+  // Target token always counts regardless of USD (pre-DEX launches still hit 0).
   const nodeSet = new Set(nodeMap.keys())
-  const extCount  = new Map<string, number>()  // appearances in priced transfers
+  const extUsd    = new Map<string, number>()  // cumulative priced USD touched
   const extTarget = new Set<string>()
 
   for (const t of allTransfers) {
     const isTarget = targetMint && t.mint === targetMint
     const usd      = realUsdScore(t.mint, t.amount, tokenPrices, targetMint)
-    // Skip no-value transfers from ghost node counting (spam prevention).
-    // Target token and SOL/stables always count regardless of DexScreener.
     if (!isTarget && usd === 0) continue
 
     for (const addr of [t.from, t.to]) {
       if (nodeSet.has(addr)) continue
-      extCount.set(addr, (extCount.get(addr) ?? 0) + 1)
+      extUsd.set(addr, (extUsd.get(addr) ?? 0) + usd)
       if (isTarget) extTarget.add(addr)
     }
   }
 
-  for (const [addr, count] of extCount) {
-    if (count >= 2 || extTarget.has(addr)) {
+  for (const [addr, usdTotal] of extUsd) {
+    if (usdTotal >= GHOST_NODE_USD_FLOOR || extTarget.has(addr)) {
       nodeMap.set(addr, { address: addr, label: shortAddr(addr), layer: EXTERNAL_LAYER, isSeed: false })
       nodeSet.add(addr)
     }
@@ -403,10 +528,75 @@ export async function runTransferScan(
   // Build final edges with real USD scores
   const edges = buildEdges(allTransfers, nodeSet, tokenPrices, targetMint)
 
+  // ── Wallet intel up front (before noise prune) ──────────────────────────────
+  // Move intel computation here so the prune pass below can use feature tags
+  // to save nodes from deletion. Previously it ran after scan_graph emission,
+  // which meant feature labels arrived too late to influence survival.
+  let intelMap = new Map<string, WalletIntelligence>()
+  try {
+    intelMap = await analyzeAllWallets([...nodeMap.values()], allTransfers)
+  } catch (err) {
+    console.warn('[scan] wallet intel failed:', (err as Error).message)
+  }
+
+  // ── Noise prune ─────────────────────────────────────────────────────────────
+  // Final survival rule: a non-seed node survives iff it has either
+  //   (a) a feature flag — static entity label OR a featuring behavior tag, OR
+  //   (b) a priced-USD edge sum that connects it (directly or via 1 hop) back
+  //       to a seed, totalling ≥ SEED_PATH_USD_FLOOR.
+  // Layer 1 nodes are always kept (they're direct counterparties; that's the
+  // whole point of the scan). Layer ≥ 2 and layer 99 are subject to the rule.
+  const seedSet = new Set(wallets)
+  const seedConnectedUsd = computeSeedConnectedUsd(edges, seedSet)
+
+  // Count "anchored" priced edges per address — edges where the *other* endpoint
+  // is a tracked node (layer 0-3). For layer-99 ghost nodes this measures how
+  // many real points in the seed's neighborhood they touch. A ghost with 1
+  // anchored edge is a pendant; ghost-to-ghost edges don't count because the
+  // other end may itself be pruned, leaving the pendant. Tracked nodes
+  // themselves always have at least one anchored edge by construction.
+  const trackedAddrs = new Set<string>()
+  for (const n of nodeMap.values()) {
+    if (n.layer !== EXTERNAL_LAYER) trackedAddrs.add(n.address)
+  }
+  const anchoredEdgeCount = new Map<string, number>()
+  for (const e of edges) {
+    if (!e.usdScore || e.usdScore <= 0) continue
+    const ft = trackedAddrs.has(e.from), tt = trackedAddrs.has(e.to)
+    if (tt) anchoredEdgeCount.set(e.from, (anchoredEdgeCount.get(e.from) ?? 0) + 1)
+    if (ft) anchoredEdgeCount.set(e.to,   (anchoredEdgeCount.get(e.to)   ?? 0) + 1)
+  }
+
+  const survivors = new Map<string, GraphNode>()
+  for (const n of nodeMap.values()) {
+    if (n.isSeed || n.layer === 1) {
+      survivors.set(n.address, n)
+      continue
+    }
+    const intel = intelMap.get(n.address)
+    const hasFeature = !!intel?.staticLabel ||
+                       (intel?.behaviorTags ?? []).some(t => FEATURE_BEHAVIOR_TAGS.has(t))
+    const seedUsd = seedConnectedUsd.get(n.address) ?? 0
+
+    let floor: number
+    if (n.layer === EXTERNAL_LAYER) {
+      const eCount = anchoredEdgeCount.get(n.address) ?? 0
+      floor = eCount >= 2 ? SEED_PATH_USD_FLOOR_GHOST_MUL : SEED_PATH_USD_FLOOR_GHOST_ONE
+    } else {
+      floor = SEED_PATH_USD_FLOOR_INTERNAL
+    }
+    if (hasFeature || seedUsd >= floor) survivors.set(n.address, n)
+  }
+  const droppedCount = nodeMap.size - survivors.size
+  console.log(`[scan] noise prune: kept ${survivors.size}/${nodeMap.size} nodes (dropped ${droppedCount})`)
+
+  const survivingAddrSet = new Set(survivors.keys())
+  const survivingEdges = edges.filter(e => survivingAddrSet.has(e.from) && survivingAddrSet.has(e.to))
+
   const timestamps = allTransfers.map(t => t.timestamp)
   const graph: TransferGraph = {
-    nodes: [...nodeMap.values()],
-    edges,
+    nodes: [...survivors.values()],
+    edges: survivingEdges,
     transfers: allTransfers,
     timeRange: {
       min: timestamps.length ? Math.min(...timestamps) : fromTime,
@@ -416,24 +606,23 @@ export async function runTransferScan(
   }
   onEvent({ type: 'scan_graph', graph })
 
-  // ── Wallet intelligence: entity labels + behavioral analysis ─────────────────
-  // Static known-address registry + transfer-pattern heuristics.
-  // Emitted immediately so the UI can label nodes as soon as the graph appears.
-  try {
-    const intel = await analyzeAllWallets([...nodeMap.values()], allTransfers)
-    if (intel.size > 0) {
-      onEvent({ type: 'wallet_intel', intel: Object.fromEntries(intel) })
-      const flagged = [...intel.values()].filter(w => w.riskScore > 40).length
-      console.log(`[scan] wallet intel: ${intel.size} wallets analyzed, ${flagged} flagged`)
+  // ── Emit wallet intel (already computed above for the prune pass) ───────────
+  if (intelMap.size > 0) {
+    // Filter intel down to surviving nodes so UI doesn't reference dropped addrs.
+    const filtered = new Map<string, WalletIntelligence>()
+    for (const addr of survivors.keys()) {
+      const v = intelMap.get(addr)
+      if (v) filtered.set(addr, v)
     }
-  } catch (err) {
-    console.warn('[scan] wallet intel failed:', (err as Error).message)
+    onEvent({ type: 'wallet_intel', intel: Object.fromEntries(filtered) })
+    const flagged = [...filtered.values()].filter(w => w.riskScore > 40).length
+    console.log(`[scan] wallet intel: ${filtered.size} wallets analyzed, ${flagged} flagged`)
   }
 
   // ── OKX enrichment (optional, requires OKX API keys) ────────────────────────
   const hasOkx = !!(process.env.OKX_API_KEY && process.env.OKX_PASSPHRASE && process.env.OKX_SECRET_KEY)
   if (hasOkx && targetMint) {
-    const discoveredWallets = [...nodeMap.values()]
+    const discoveredWallets = [...survivors.values()]
       .filter(n => !n.isSeed && n.layer <= maxDepth)
       .map(n => n.address)
 

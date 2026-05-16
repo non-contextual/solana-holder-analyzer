@@ -1283,8 +1283,12 @@ function renderGraph() {
   // Force tuning by graph size — smaller scans get stronger spring; large get
   // weaker so the layout settles within the pre-tick budget.
   const N = trackedNodes.length
-  const chargeStr = N > 80 ? -260 : N > 30 ? -420 : -560
-  const linkDist  = N > 80 ? 60  : N > 30 ? 90  : 120
+  // Spread nodes farther so 30-edge hubs don't collapse into a tight bundle
+  // where every arrow lands within 20px of the same point. Bigger collision
+  // radius + longer links + stronger repulsion all push the same direction:
+  // give labels room to breathe and let edge angles read distinctly.
+  const chargeStr = N > 80 ? -480 : N > 30 ? -680 : -880
+  const linkDist  = N > 80 ? 110 : N > 30 ? 150 : 180
 
   function forceCluster(alpha) {
     for (const n of trackedNodes) {
@@ -1297,9 +1301,12 @@ function renderGraph() {
 
   const sim = d3.forceSimulation(allNodes)
     .force('link',    d3.forceLink(simEdges).id(d => d.address).distance(linkDist).strength(0.45))
-    .force('charge',  d3.forceManyBody().strength(chargeStr).distanceMax(420))
+    .force('charge',  d3.forceManyBody().strength(chargeStr).distanceMax(700))
     .force('center',  d3.forceCenter(cx, cy).strength(0.02))
-    .force('collide', d3.forceCollide(n => n.isSeed ? 22 : (n.layer >= 99 ? 5 : 14)))
+    // Collide radius bumped: tracked nodes 28 (was 14) so labels don't slam
+    // into each other. The seed gets 36 because its label is bigger and
+    // its centrality means it's always crowded.
+    .force('collide', d3.forceCollide(n => n.isSeed ? 36 : (n.layer >= 99 ? 5 : 28)))
     .force('cluster', forceCluster)
     .alphaDecay(0.028)
     .stop()
@@ -1416,13 +1423,49 @@ function renderGraph() {
   })
 
   // ── Edges ──────────────────────────────────────────────────────────────────
-  const maxAmt = graphEdges.reduce((m, e) => Math.max(m, e.amount), 0.001)
+  // Multi-edge layout: when N tokens connect the same pair (e.g. seed↔CEX has
+  // SOL+USDC+USDT edges), the original arc had them stack identically. We now
+  // assign each edge an in-pair index so renderEdgePath can offset them along
+  // the perpendicular. The pair key sorts the two addresses so seed→CEX and
+  // CEX→seed share the same bucket.
+  const pairBuckets = new Map()
+  for (const e of simEdges) {
+    const a = e.source.address, b = e.target.address
+    const key = a < b ? `${a}|${b}` : `${b}|${a}`
+    if (!pairBuckets.has(key)) pairBuckets.set(key, [])
+    pairBuckets.get(key).push(e)
+  }
+  for (const list of pairBuckets.values()) {
+    // Sort by USD desc so the strongest flow takes the central slot — the
+    // user's eye finds the big money on the geodesic, side tokens at the edge.
+    list.sort((x, y) => (y.usdScore ?? 0) - (x.usdScore ?? 0))
+    list.forEach((e, i) => { e._pairIdx = i; e._pairCount = list.length })
+  }
+
+  // Edge width and opacity scale with USD value (not raw token amount, which
+  // would make a 1B BONK edge look bigger than a $5M USDC edge). USD-priced
+  // edges that registered 0 fall back to a thin amount-based hint.
+  const maxUsd = graphEdges.reduce((m, e) => Math.max(m, e.usdScore || 0), 0.01)
+  const widthForEdge = e => {
+    const u = e.usdScore || 0
+    if (u > 0)        return Math.max(0.8, Math.min(5.5, Math.log10(u + 1) * 1.6))
+    return 0.8   // unpriced edge — minimum width, no scaling competition
+  }
+  const opacityForEdge = e => {
+    const u = e.usdScore || 0
+    if (u <= 0)       return 0.18
+    if (u >= 10_000)  return 0.78
+    if (u >= 1_000)   return 0.62
+    if (u >= 100)     return 0.46
+    if (u >= 10)      return 0.32
+    return 0.22
+  }
   const linkPaths = linkG.selectAll('path').data(simEdges).enter().append('path')
     .attr('fill', 'none')
     .attr('stroke', e => tokenColor(e.symbol))
-    .attr('stroke-opacity', 0.5)
-    .attr('stroke-width', e => Math.max(0.8, Math.min(6, (e.amount / maxAmt) * 6)))
-    .attr('marker-end', e => `url(#arr-${tokenColor(e.symbol).replace('#', '')})`)
+    .attr('stroke-opacity', opacityForEdge)
+    .attr('stroke-width', widthForEdge)
+    .attr('marker-end', e => widthForEdge(e) >= 1.5 ? `url(#arr-${tokenColor(e.symbol).replace('#', '')})` : null)
     .style('cursor', 'pointer')
     // Edge click → list every transfer between this pair for this token,
     // time-ordered, with tx-source badges. stopPropagation so the svg
@@ -1448,11 +1491,35 @@ function renderGraph() {
     })
     .on('mouseleave', () => { document.getElementById('tooltip').style.display = 'none' })
 
+  // Quadratic Bezier with perpendicular offset. Each parallel edge in the same
+  // pair gets shifted along the perpendicular so they don't stack. Default
+  // curvature (k) is small so the lines read as "almost straight with a
+  // suggestion of arc" rather than the heavy 1.6-radius arcs we had before.
+  // The curve direction (sign of offset) is consistent per pair so token
+  // edges in the same bucket fan symmetrically around the chord.
   function edgePath(e) {
     const s = e.source, t = e.target
     if (!s || !t || s.x == null || t.x == null) return ''
-    const dr = Math.hypot(t.x - s.x, t.y - s.y) * 1.6
-    return `M${s.x},${s.y}A${dr},${dr} 0 0,1 ${t.x},${t.y}`
+    const dx = t.x - s.x, dy = t.y - s.y
+    const dist = Math.hypot(dx, dy) || 1
+    // Unit perpendicular (90° CCW).
+    const px = -dy / dist, py = dx / dist
+    const idx   = e._pairIdx   ?? 0
+    const count = e._pairCount ?? 1
+    // Spread: 16-26px per slot scaled by chord length so closer pairs space
+    // tighter. Centered around 0 so a single edge stays on the geodesic.
+    const slot   = (idx - (count - 1) / 2)
+    const spread = Math.min(28, Math.max(14, dist * 0.06))
+    // Single edges run dead straight (offset=0). Multi-edge pairs spread
+    // symmetrically. This keeps the bulk of the graph clean and only the
+    // multi-token-per-pair regions show curvature — which is exactly the
+    // signal the analyst wants visible ("these two are joined by several
+    // tokens, not just one").
+    const offset = count > 1 ? slot * spread : 0
+    // Control point at midpoint shifted along the perpendicular.
+    const mx = (s.x + t.x) / 2 + px * offset
+    const my = (s.y + t.y) / 2 + py * offset
+    return `M${s.x},${s.y}Q${mx},${my} ${t.x},${t.y}`
   }
   linkPaths.attr('d', edgePath)
 
@@ -1595,14 +1662,32 @@ function renderGraph() {
     }
   })
 
-  // Labels: seeds always; layer-1 if not too many; layer 2+ on hover only.
-  const showLabelsLayer1 = trackedNodes.filter(n => n.layer === 1).length <= 20
-  nodeEls.filter(n => n.isSeed || (showLabelsLayer1 && n.layer === 1)).append('text')
+  // Labels: only the ones an analyst actually needs to read at a glance.
+  // Seed + nodes that carry an identity worth showing (static entity label
+  // like Binance / stake.com, SNS .sol domain, whale, mixer, CEX-like…).
+  // Everything else stays unlabeled by default — hover/click reveals the
+  // full address in the tooltip and sidebar. Cuts the 8-label pile-up at
+  // the top of the layer-1 cluster down to the 2-3 that matter.
+  function shouldLabel(n) {
+    if (n.isSeed) return true
+    const i = walletIntel.get(n.address)
+    if (!i) return false
+    if (i.staticLabel) return true   // stake.com / Binance / SNS-inferred
+    const FEAT = ['cex-like', 'mixer-like', 'whale', 'high-fan-in', 'scatter']
+    return (i.behaviorTags || []).some(t => FEAT.includes(t))
+  }
+  function labelText(n) {
+    const i = walletIntel.get(n.address)
+    if (i?.staticLabel?.name) return i.staticLabel.name   // "stake.com", "Binance"
+    return n.label   // fall back to short address
+  }
+  nodeEls.filter(shouldLabel).append('text')
     .attr('dy', n => (n.isSeed ? 14 : 9) + 11)
-    .attr('text-anchor', 'middle').attr('fill', '#8C8C8A')
-    .attr('font-family', 'Geist Mono,monospace').attr('font-size', 9)
+    .attr('text-anchor', 'middle').attr('fill', '#A8A8A6')
+    .attr('font-family', 'Geist Mono,monospace').attr('font-size', 10)
+    .attr('font-weight', n => n.isSeed || walletIntel.get(n.address)?.staticLabel ? 600 : 400)
     .attr('pointer-events', 'none')
-    .text(n => n.label)
+    .text(labelText)
 
   // ── Live tick: while the sim is still cooling (after pre-tick we restart at
   // low alpha so dragging stays bouncy), the on('tick') handler keeps node

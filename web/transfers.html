@@ -1416,10 +1416,13 @@ function renderGraph() {
   // Arrowhead markers per token color
   const usedCols = [...new Set(graphEdges.map(e => tokenColor(e.symbol)))]
   usedCols.forEach(c => {
+    // Smaller, thinner arrowhead — earlier 5x5 markers bloomed against the
+    // now-thinner 0.7-2.2px shafts. New shape is a slim 3x3 chevron that
+    // reads as a tip, not a flag.
     defs.append('marker').attr('id', 'arr-' + c.replace('#', ''))
-      .attr('viewBox', '0 -5 10 10').attr('refX', 14).attr('refY', 0)
-      .attr('markerWidth', 5).attr('markerHeight', 5).attr('orient', 'auto')
-      .append('path').attr('d', 'M0,-5L10,0L0,5').attr('fill', c).attr('fill-opacity', 0.7)
+      .attr('viewBox', '0 -4 8 8').attr('refX', 10).attr('refY', 0)
+      .attr('markerWidth', 3.5).attr('markerHeight', 3.5).attr('orient', 'auto')
+      .append('path').attr('d', 'M0,-3L8,0L0,3').attr('fill', c).attr('fill-opacity', 0.55)
   })
 
   // ── Edges ──────────────────────────────────────────────────────────────────
@@ -1442,30 +1445,29 @@ function renderGraph() {
     list.forEach((e, i) => { e._pairIdx = i; e._pairCount = list.length })
   }
 
-  // Edge width and opacity scale with USD value (not raw token amount, which
-  // would make a 1B BONK edge look bigger than a $5M USDC edge). USD-priced
-  // edges that registered 0 fall back to a thin amount-based hint.
-  const maxUsd = graphEdges.reduce((m, e) => Math.max(m, e.usdScore || 0), 0.01)
+  // Edge width and opacity scale with USD — but kept thin overall. Earlier
+  // version went up to 5.5px which felt chunky and the arrowheads bloomed.
+  // Range now: 0.7-2.2px. Opacity stays in a tight 0.35-0.55 band so the
+  // graph reads as a uniform mesh with the big flows just slightly louder.
   const widthForEdge = e => {
     const u = e.usdScore || 0
-    if (u > 0)        return Math.max(0.8, Math.min(5.5, Math.log10(u + 1) * 1.6))
-    return 0.8   // unpriced edge — minimum width, no scaling competition
+    if (u <= 0)       return 0.7
+    // log10($1) = 0; log10($1M) = 6. Scale * 0.32 caps at ~2.1px.
+    return Math.max(0.7, Math.min(2.2, Math.log10(u + 1) * 0.32 + 0.7))
   }
   const opacityForEdge = e => {
     const u = e.usdScore || 0
-    if (u <= 0)       return 0.18
-    if (u >= 10_000)  return 0.78
-    if (u >= 1_000)   return 0.62
-    if (u >= 100)     return 0.46
-    if (u >= 10)      return 0.32
-    return 0.22
+    if (u <= 0)       return 0.22
+    if (u >= 10_000)  return 0.55
+    if (u >= 100)     return 0.42
+    return 0.32
   }
   const linkPaths = linkG.selectAll('path').data(simEdges).enter().append('path')
     .attr('fill', 'none')
     .attr('stroke', e => tokenColor(e.symbol))
     .attr('stroke-opacity', opacityForEdge)
     .attr('stroke-width', widthForEdge)
-    .attr('marker-end', e => widthForEdge(e) >= 1.5 ? `url(#arr-${tokenColor(e.symbol).replace('#', '')})` : null)
+    .attr('marker-end', e => widthForEdge(e) >= 1.2 ? `url(#arr-${tokenColor(e.symbol).replace('#', '')})` : null)
     .style('cursor', 'pointer')
     // Edge click → list every transfer between this pair for this token,
     // time-ordered, with tx-source badges. stopPropagation so the svg

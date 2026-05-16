@@ -582,6 +582,11 @@ function initView() {
   document.getElementById('rangeS').value = '0'
   document.getElementById('rangeE').value = '100'
   updateSlider()
+  // Sync filter-toggle button styling with their current state — without this
+  // the spam-token filter starts engaged but its button looks identical to the
+  // unengaged external-nodes one, so the user can't tell what's on.
+  applyToggleStyle(document.getElementById('btnShowExt'),     showExternal)
+  applyToggleStyle(document.getElementById('btnHideUnpriced'), hideUnpriced)
 
   // Token chips sorted by USD volume
   const mintUsd = new Map()
@@ -600,7 +605,18 @@ function initView() {
     const sym  = symbolForMint(m)
     if (seenSymbols.has(sym)) continue
     seenSymbols.add(sym)
-    const tag  = info ? ` $${info.price < 0.001 ? info.price.toExponential(2) : fmtN(info.price)}` : ''
+    // Price tag:
+    //   - Stables → $1.00 (DexScreener fetch skips them so info is always undefined)
+    //   - Sub-cent token → scientific notation with lowercase e (avoid the
+    //     uppercase "$6.50E-6" look) but kept tight enough to fit on a chip
+    //   - Real prices → fmtN with normal precision
+    //   - Missing info & not stable → no tag (rather than fake $0)
+    let tag = ''
+    if (STABLE_MINTS_FE.has(m)) {
+      tag = ' $1.00'
+    } else if (info) {
+      tag = ' ' + fmtPrice(info.price)
+    }
     const chip = document.createElement('button')
     chip.className = `token-chip${defaultActive.has(m) ? ' active' : ''}`
     // dataset.mint is the underlying identity — used for filterMints set, edge keys, copy actions.
@@ -670,10 +686,21 @@ const _simPos = new Map()
 
 let _showExtMsg = null   // deferred empty-state timer
 
+// Visual feedback shared between the two filter toggles: when ON, the button
+// gets the accent border + tint that matches active token chips, so the user
+// can tell at a glance which filters are in effect.
+function applyToggleStyle(btn, on) {
+  if (!btn) return
+  btn.style.color        = on ? 'var(--accent)' : 'var(--subtle)'
+  btn.style.borderColor  = on ? 'var(--accent)' : 'var(--border)'
+  btn.style.background   = on ? '#F5A62318'     : 'transparent'
+}
+
 function toggleExternal() {
   showExternal = !showExternal
   const btn = document.getElementById('btnShowExt')
   if (btn) btn.textContent = showExternal ? '外部节点 开' : '外部节点 关'
+  applyToggleStyle(btn, showExternal)
   if (scanGraph) renderGraph()
 }
 
@@ -681,6 +708,7 @@ function toggleUnpriced() {
   hideUnpriced = !hideUnpriced
   const btn = document.getElementById('btnHideUnpriced')
   if (btn) btn.textContent = hideUnpriced ? 'spam 代币 隐藏' : 'spam 代币 显示'
+  applyToggleStyle(btn, hideUnpriced)
   if (scanGraph) renderCurrent()
 }
 
@@ -1028,13 +1056,11 @@ function renderGraph() {
     s.fx = s.x; s.fy = s.y   // pin seeds so the rest of the graph orbits them
   })
 
-  // Pin externals to a static outer ring, evenly distributed around the canvas.
-  const outerR = Math.min(W, H) * 0.46
-  externalNodes.forEach((n, i) => {
-    const angle = (2 * Math.PI * i) / Math.max(1, externalNodes.length)
-    n.x = cx + outerR * Math.cos(angle); n.y = cy + outerR * Math.sin(angle)
-    n.fx = n.x; n.fy = n.y
-  })
+  // Externals get a temporary initial position; the real placement runs after
+  // the force-sim pre-tick once tracked nodes have settled. Without a starting
+  // point d3.forceSimulation would log NaN warnings if simEdges tries to read
+  // x/y before the post-tick replacement.
+  externalNodes.forEach(n => { n.x = cx; n.y = cy })
 
   // Build mutable edge objects for d3.forceLink (it mutates source/target into node refs).
   const nodeByAddr = new Map(allNodes.map(n => [n.address, n]))
@@ -1073,6 +1099,76 @@ function renderGraph() {
   // we restart at a low alpha so drag interaction still kicks the spring.
   const numTicks = Math.min(280, Math.ceil(Math.log(sim.alphaMin()) / Math.log(1 - 0.028)))
   for (let i = 0; i < numTicks; i++) sim.tick()
+
+  // Now that tracked nodes have settled, scatter externals around their
+  // strongest tracked anchor instead of on a uniform outer ring. Each external
+  // points to its primary tracked counterparty; clustering them visually
+  // around that anchor turns the old artificial-looking "halo ring" into
+  // satellite clouds that communicate "this layer-1 wallet has 30 small
+  // counterparties hanging off it". Distance offset scales with the
+  // surrounding anchor's degree so dense anchors fan further out.
+  if (externalNodes.length) {
+    // Per-anchor degree (how many externals attach here) — used to space the
+    // cloud so heavy anchors don't pack into a tight bullseye.
+    const anchorOf = new Map()         // external addr → tracked node ref
+    const anchorDeg = new Map()        // tracked addr → external count
+    const trackedSet = new Set(trackedNodes.map(n => n.address))
+    // For each external, find the strongest USD anchor among tracked nodes.
+    for (const ext of externalNodes) {
+      let bestAddr = null, bestUsd = -1
+      for (const e of graphEdges) {
+        if (!e.usdScore || e.usdScore <= bestUsd) continue
+        if (e.from === ext.address && trackedSet.has(e.to))   { bestAddr = e.to;   bestUsd = e.usdScore }
+        if (e.to   === ext.address && trackedSet.has(e.from)) { bestAddr = e.from; bestUsd = e.usdScore }
+      }
+      if (bestAddr) {
+        anchorOf.set(ext.address, bestAddr)
+        anchorDeg.set(bestAddr, (anchorDeg.get(bestAddr) ?? 0) + 1)
+      }
+    }
+    // Per-anchor running index → distinct angle for each satellite.
+    const ix = new Map()
+    const nodeByAddrLocal = new Map(trackedNodes.map(n => [n.address, n]))
+    const outerR = Math.min(W, H) * 0.46
+    for (const ext of externalNodes) {
+      const anchorAddr = anchorOf.get(ext.address)
+      const anchor     = anchorAddr ? nodeByAddrLocal.get(anchorAddr) : null
+      if (!anchor) {
+        // Orphan external (no priced edge to a tracked node) — drop on the
+        // far perimeter so it doesn't visually compete.
+        const a = Math.random() * Math.PI * 2
+        ext.x = cx + outerR * Math.cos(a); ext.y = cy + outerR * Math.sin(a)
+        ext.fx = ext.x; ext.fy = ext.y
+        continue
+      }
+      const deg = anchorDeg.get(anchorAddr) || 1
+      const i   = ix.get(anchorAddr) ?? 0
+      ix.set(anchorAddr, i + 1)
+      if (anchor.isSeed) {
+        // Seed typically anchors 50+ externals — packing them into a small
+        // halo around the seed swallows the entire central cluster. Instead
+        // scatter them onto a wide outer band so they decorate the perimeter
+        // without crowding the tracked subgraph.
+        const ang  = (i / deg) * 2 * Math.PI + (Math.random() - 0.5) * 0.3
+        const band = outerR * (0.78 + Math.random() * 0.22)
+        ext.x = cx + band * Math.cos(ang)
+        ext.y = cy + band * Math.sin(ang)
+      } else {
+        // Non-seed anchor: cluster tightly so the satellite cloud reads as
+        // "these externals belong to this layer-N wallet". Radius grows
+        // with sqrt(deg) to avoid bullseye packing on heavy anchors.
+        const subR = 28 + 6 * Math.sqrt(deg)
+        const ang  = (i / deg) * 2 * Math.PI + (Math.random() - 0.5) * 0.3
+        const dx = anchor.x - cx, dy = anchor.y - cy
+        const len = Math.hypot(dx, dy) || 1
+        const bx = (dx / len) * (subR * 0.7)   // push slightly outward
+        const by = (dy / len) * (subR * 0.7)
+        ext.x = anchor.x + bx + subR * Math.cos(ang)
+        ext.y = anchor.y + by + subR * Math.sin(ang)
+      }
+      ext.fx = ext.x; ext.fy = ext.y
+    }
+  }
 
   // ── SVG setup ──────────────────────────────────────────────────────────────
   const svg = d3.select('#mainSvg').attr('width', W).attr('height', H)
@@ -1307,6 +1403,31 @@ function renderGraph() {
   // springy feel; bigger graphs settle faster to avoid jank.
   sim.alpha(N > 80 ? 0.08 : 0.2).restart()
 
+  // Initial camera: fit all visible nodes into the viewport with a small
+  // margin. Without this, the simulation centers at (W/2,H/2) but its actual
+  // node spread can be much wider/narrower than the SVG, so the user lands on
+  // a tightly-zoomed cluster around the seed and has to manually zoom out.
+  // Computed from current node positions (already post-pre-tick, so reflects
+  // the real layout extent).
+  {
+    let minX = +Infinity, minY = +Infinity, maxX = -Infinity, maxY = -Infinity
+    for (const n of allNodes) {
+      if (n.x < minX) minX = n.x
+      if (n.y < minY) minY = n.y
+      if (n.x > maxX) maxX = n.x
+      if (n.y > maxY) maxY = n.y
+    }
+    if (isFinite(minX)) {
+      const margin = 60
+      const spanW = Math.max(maxX - minX, 1) + margin * 2
+      const spanH = Math.max(maxY - minY, 1) + margin * 2
+      const k     = Math.min(W / spanW, H / spanH, 1.4)   // never zoom IN past 1.4
+      const cxF   = (minX + maxX) / 2
+      const cyF   = (minY + maxY) / 2
+      svg.call(zoom.transform, d3.zoomIdentity.translate(W / 2 - k * cxF, H / 2 - k * cyF).scale(k))
+    }
+  }
+
   // Cache positions so re-renders preserve layout across filter changes.
   sim.on('end', () => {
     for (const n of allNodes) _simPos.set(n.address, { x: n.x, y: n.y })
@@ -1378,7 +1499,16 @@ async function saveScan() {
   if (!scanGraph) return
   const note = prompt('Optional label:', '')
   if (note === null) return
-  const body = { wallets: currentScanWallets, graph: scanGraph, prices: Object.fromEntries(tokenPrices), note: note || undefined }
+  // Persist wallet intel alongside the graph. Without it, loading a snapshot
+  // strips all 行为标签 / 风险评分 / 实体银行身份 and the sidebar shows only
+  // the basic edge counts. Same for hotWallets — needed for the purple-diamond
+  // skip-expand markers in the graph.
+  const body = {
+    wallets: currentScanWallets, graph: scanGraph, prices: Object.fromEntries(tokenPrices),
+    intel: Object.fromEntries(walletIntel),
+    hotWallets: [...hotWallets],
+    note: note || undefined,
+  }
   const res = await fetch('/api/transfer-snapshots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   if (res.ok) {
     const btn = document.getElementById('btnSaveScan')
@@ -1428,7 +1558,8 @@ async function loadTransferScan(filename) {
   scanGraph = snap.graph
   tokenPrices = snap.prices ? new Map(Object.entries(snap.prices)) : new Map()
   okxDataMap = new Map(); suspects = []; currentScanWallets = snap.wallets ?? []
-  walletIntel = new Map(); hotWallets = new Set()
+  walletIntel = snap.intel ? new Map(Object.entries(snap.intel)) : new Map()
+  hotWallets  = snap.hotWallets ? new Set(snap.hotWallets) : new Set()
 
   // Recover the scan parameters from the saved graph so the recap bar reads
   // accurately. Depth is the deepest tracked layer (ignoring 99 externals);
@@ -1628,6 +1759,24 @@ function fmtN(n) {
   if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2)+'M'
   if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(2)+'K'
   return n.toFixed(2)
+}
+
+// Display a USD price suitable for token chips and tooltips. Distinct from fmtN
+// because sub-cent meme tokens routinely have prices like 0.0000023 — fmtN's
+// .toFixed(2) would render those as "0.00" which loses signal. We use 3 sig
+// figs of scientific notation in lowercase (looks neater than 6.50E-6) for
+// anything under $0.001, and normal precision above.
+function fmtPrice(p) {
+  if (!isFinite(p) || p <= 0) return '$0'
+  if (p < 0.001) {
+    // 2 sig figs after the leading digit — e.g. 0.0000234 → $2.3e-5
+    const exp = Math.floor(Math.log10(p))
+    const mantissa = p / Math.pow(10, exp)
+    return `$${mantissa.toFixed(1)}e${exp}`
+  }
+  if (p < 1)     return '$' + p.toFixed(4).replace(/0+$/, '').replace(/\.$/, '')
+  if (p < 1000)  return '$' + p.toFixed(2)
+  return '$' + fmtN(p)
 }
 </script>
 </body>

@@ -86,12 +86,29 @@ export interface WalletOkxData {
   targetTokenPct: number | null
 }
 
+// Per-node summary of how it relates to ANY seed in the scan. This is what
+// an analyst wants front-and-center — "I clicked this address because I want
+// to know its relationship with the target wallet, not its global footprint".
+// All USD values are real (using DexScreener prices when available); flows
+// from non-priced transfers are excluded.
+export interface SeedRelation {
+  directInUsd:     number   // USD this address received DIRECTLY from a seed
+  directOutUsd:    number   // USD this address sent DIRECTLY to a seed
+  directTxCount:   number   // number of direct transfers (priced or not)
+  indirectInUsd:   number   // USD via 1-hop intermediaries → from seed (bottleneck-min)
+  indirectOutUsd:  number   // USD via 1-hop intermediaries → to seed (bottleneck-min)
+  firstTs:         number | null   // earliest direct-or-1-hop interaction with seed network
+  lastTs:          number | null
+  hopDistance:     number   // shortest priced-edge distance to any seed (0=is seed, 1=direct…)
+}
+
 export interface TransferGraph {
-  nodes:      GraphNode[]
-  edges:      GraphEdge[]
-  transfers:  RawTransfer[]
-  timeRange:  { min: number; max: number }
-  targetMint: string | undefined
+  nodes:        GraphNode[]
+  edges:        GraphEdge[]
+  transfers:    RawTransfer[]
+  timeRange:    { min: number; max: number }
+  targetMint:   string | undefined
+  seedRelation?: Record<string, SeedRelation>   // address → relationship summary
 }
 
 // Sentinel layer for ghost/external nodes (discovered after BFS via priced edges).
@@ -242,6 +259,106 @@ function computeSeedConnectedUsd(edges: GraphEdge[], seeds: Set<string>): Map<st
       }
     }
     result.set(addr, usd)
+  }
+  return result
+}
+
+// Compute the "this address's relationship with the seed" summary for every
+// surviving address. Three buckets of activity matter here:
+//   1. Direct edges with the seed itself — strongest signal
+//   2. 1-hop indirect (this addr ↔ X ↔ seed) — relevant for mid-graph nodes
+//   3. Shortest hop distance to any seed — gives a "how far away" reading
+// We only count priced transfers for USD figures so spam dust doesn't inflate
+// the relationship. The hop distance falls back to BFS over priced edges so
+// it works for layer-99 ghost nodes too (their layer numbers are arbitrary).
+function computeSeedRelations(
+  addrs:      Set<string>,
+  seeds:      Set<string>,
+  transfers:  RawTransfer[],
+  edges:      GraphEdge[],
+  prices:     Map<string, TokenPriceInfo>,
+  targetMint: string | undefined,
+): Record<string, SeedRelation> {
+  // Build neighbor map from priced edges only — for hop distance + 1-hop sums.
+  const nbrUsd = new Map<string, Map<string, number>>()
+  for (const e of edges) {
+    if (!e.usdScore || e.usdScore <= 0) continue
+    if (!nbrUsd.has(e.from)) nbrUsd.set(e.from, new Map())
+    if (!nbrUsd.has(e.to))   nbrUsd.set(e.to,   new Map())
+    nbrUsd.get(e.from)!.set(e.to,   (nbrUsd.get(e.from)!.get(e.to)   ?? 0) + e.usdScore)
+    nbrUsd.get(e.to)!.set(e.from,   (nbrUsd.get(e.to)!.get(e.from)   ?? 0) + e.usdScore)
+  }
+
+  // BFS once from the seed set to derive hop distance for every reachable addr.
+  const hop = new Map<string, number>()
+  const queue: string[] = []
+  for (const s of seeds) { hop.set(s, 0); queue.push(s) }
+  while (queue.length) {
+    const cur = queue.shift()!
+    const d = hop.get(cur)!
+    const ns = nbrUsd.get(cur)
+    if (!ns) continue
+    for (const nb of ns.keys()) {
+      if (hop.has(nb)) continue
+      hop.set(nb, d + 1)
+      queue.push(nb)
+    }
+  }
+
+  // Aggregate per-address direct + indirect USD flows + interaction timestamps.
+  const result: Record<string, SeedRelation> = {}
+  for (const addr of addrs) {
+    if (seeds.has(addr)) {
+      result[addr] = { directInUsd: 0, directOutUsd: 0, directTxCount: 0, indirectInUsd: 0, indirectOutUsd: 0, firstTs: null, lastTs: null, hopDistance: 0 }
+      continue
+    }
+    let directIn = 0, directOut = 0, directTx = 0
+    let firstTs: number | null = null, lastTs: number | null = null
+
+    for (const t of transfers) {
+      const involvesMe   = (t.from === addr) || (t.to === addr)
+      const otherIsSeed  = involvesMe && (seeds.has(t.from) || seeds.has(t.to))
+      if (!otherIsSeed) continue
+      const usd = realUsdScore(t.mint, t.amount, prices, targetMint) || 0
+      if (t.to === addr) directIn  += usd
+      else               directOut += usd
+      directTx++
+      if (firstTs === null || t.timestamp < firstTs) firstTs = t.timestamp
+      if (lastTs  === null || t.timestamp > lastTs)  lastTs  = t.timestamp
+    }
+
+    // Indirect (1-hop via an intermediary): for every neighbor of `addr` that
+    // is also a neighbor of a seed, attribute min(addr→nb, nb→seed) to the
+    // indirect bucket. This is the same bottleneck reasoning as the prune.
+    let indirectIn = 0, indirectOut = 0
+    const myNbrs = nbrUsd.get(addr)
+    if (myNbrs) {
+      for (const [nb, addrNbUsd] of myNbrs) {
+        if (seeds.has(nb)) continue   // direct edges already accounted
+        const nbNbrs = nbrUsd.get(nb)
+        if (!nbNbrs) continue
+        let nbToSeed = 0
+        for (const [nb2, e2] of nbNbrs) if (seeds.has(nb2)) nbToSeed += e2
+        if (nbToSeed <= 0) continue
+        const contribution = Math.min(addrNbUsd, nbToSeed)
+        // Direction split: we don't have per-edge direction for the intermediate
+        // hop (edges are bidirectional in nbrUsd), so split evenly. Good enough
+        // for "is there significant indirect connection" purposes.
+        indirectIn  += contribution / 2
+        indirectOut += contribution / 2
+      }
+    }
+
+    result[addr] = {
+      directInUsd:    +directIn.toFixed(2),
+      directOutUsd:   +directOut.toFixed(2),
+      directTxCount:  directTx,
+      indirectInUsd:  +indirectIn.toFixed(2),
+      indirectOutUsd: +indirectOut.toFixed(2),
+      firstTs,
+      lastTs,
+      hopDistance:    hop.get(addr) ?? Infinity,
+    }
   }
   return result
 }
@@ -632,6 +749,12 @@ export async function runTransferScan(
   const survivingAddrSet = new Set(survivors.keys())
   const survivingEdges = edges.filter(e => survivingAddrSet.has(e.from) && survivingAddrSet.has(e.to))
 
+  // ── Per-node seed relationship ──────────────────────────────────────────────
+  // What an analyst actually wants when they click an address: how does THIS
+  // address relate to the SEED, not its global footprint. We compute it once
+  // here and attach to the graph so the sidebar + table can both render it.
+  const seedRelation = computeSeedRelations(survivingAddrSet, seedSet, allTransfers, edges, tokenPrices, targetMint)
+
   const timestamps = allTransfers.map(t => t.timestamp)
   const graph: TransferGraph = {
     nodes: [...survivors.values()],
@@ -642,6 +765,7 @@ export async function runTransferScan(
       max: timestamps.length ? Math.max(...timestamps) : toTime,
     },
     targetMint,
+    seedRelation,
   }
   onEvent({ type: 'scan_graph', graph })
 

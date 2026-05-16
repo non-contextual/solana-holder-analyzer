@@ -953,18 +953,54 @@ function showNodeDetail(n, graphEdges) {
     entityBannerHtml = `<div style="background:#F5A62318;border:1px solid #F5A62340;padding:6px 10px;margin-bottom:10px"><span style="color:#F5A623;font-family:var(--font-mono);font-size:10px">↗ High scatter — ${intel.summary}</span></div>`
   }
 
-  // ── 概览 — position + flows + edge counts ─────────────────────────────────
-  const overviewRows = [
-    detailRow('位置', layerWord),
-    detailRow('关联', `${inEdges.length} 个入边 / ${outEdges.length} 个出边`),
-    detailRow('转入', `${fmtN(inAmt)}${inUsd > 0 ? `（约 $${fmtN(inUsd)}）` : ''}`),
-    detailRow('转出', `${fmtN(outAmt)}${outUsd > 0 ? `（约 $${fmtN(outUsd)}）` : ''}`),
-  ]
-  if (hotWallets.has(n.address)) overviewRows.push(detailRow('BFS 状态', '已跳过（疑似池子 / 高频）'))
-  if (okx) {
-    overviewRows.push(detailRow('总持仓', `$${fmtN(okx.portfolioUsd)}`))
-    if (okx.targetTokenUsd) overviewRows.push(detailRow('目标代币', `$${fmtN(okx.targetTokenUsd)}（占 SPL ${okx.targetTokenPct?.toFixed(0)}%）`))
+  // ── 与种子的资金关系 — top section, the analyst-first headline ────────────
+  // Replaces the old "概览" that mixed seed-relationship with global footprint.
+  // For non-seeds we lead with direct in/out USD specifically against the seed
+  // (using priced edges), plus first/last interaction; the global stats get
+  // demoted into a collapsed "整体活动" sub-row.
+  const rel = scanGraph?.seedRelation?.[n.address]
+  const fmtRelUsd = u => u >= 1 ? '$' + fmtN(u) : u > 0 ? '$' + u.toFixed(2) : '$0'
+  const fmtRelDate = ts => ts ? new Date(ts*1000).toLocaleDateString('zh-CN', {year:'2-digit', month:'numeric', day:'numeric'}) : '—'
+  const relRows = []
+  if (n.isSeed) {
+    relRows.push(detailRow('位置', '种子'))
+  } else if (rel) {
+    const netUsd = rel.directInUsd - rel.directOutUsd
+    const hopLabel = !isFinite(rel.hopDistance) ? '无可达路径'
+                   : rel.hopDistance === 1 ? '直连种子'
+                   : `距种子 ${rel.hopDistance} 跳`
+    relRows.push(detailRow('位置', `${layerWord} · ${hopLabel}`))
+    if (rel.directTxCount > 0) {
+      // Direction marker tells the analyst at a glance whether this address
+      // RECEIVED net from seed (cash-out destination?) or SENT net to seed
+      // (funder?). The net USD is the unambiguous "value transferred between
+      // this pair", which is the question they actually asked by clicking.
+      const dirArrow = netUsd >= 0 ? '↘ 种子流入' : '↗ 流向种子'
+      relRows.push(detailRow('直连净流', `${dirArrow} ${fmtRelUsd(Math.abs(netUsd))}`))
+      relRows.push(detailRow('直连明细', `${rel.directTxCount} 笔 · 入 ${fmtRelUsd(rel.directInUsd)} · 出 ${fmtRelUsd(rel.directOutUsd)}`))
+      relRows.push(detailRow('互动时间', `${fmtRelDate(rel.firstTs)} → ${fmtRelDate(rel.lastTs)}`))
+    } else {
+      relRows.push(detailRow('与种子', '无直连'))
+      if (rel.indirectInUsd + rel.indirectOutUsd > 0) {
+        relRows.push(detailRow('1 跳间接', `约 ${fmtRelUsd(rel.indirectInUsd + rel.indirectOutUsd)}`))
+      }
+    }
+  } else {
+    relRows.push(detailRow('位置', layerWord))
   }
+  if (hotWallets.has(n.address)) relRows.push(detailRow('BFS 状态', '已跳过（疑似池子 / 高频）'))
+  if (okx) {
+    relRows.push(detailRow('链上持仓', `$${fmtN(okx.portfolioUsd)}`))
+    if (okx.targetTokenUsd) relRows.push(detailRow('目标代币', `$${fmtN(okx.targetTokenUsd)}（占 SPL ${okx.targetTokenPct?.toFixed(0)}%）`))
+  }
+
+  // Global footprint is secondary — collapsed by default so the seed-
+  // relationship numbers above don't have to fight for attention.
+  const globalRows = [
+    detailRow('总边数', `${inEdges.length} 入 / ${outEdges.length} 出`),
+    detailRow('总转入', `${fmtN(inAmt)}${inUsd > 0 ? `（约 $${fmtN(inUsd)}）` : ''}`),
+    detailRow('总转出', `${fmtN(outAmt)}${outUsd > 0 ? `（约 $${fmtN(outUsd)}）` : ''}`),
+  ]
 
   // ── 行为分析 — risk + tags up top, detailed CV stats collapsed by default ──
   let behaviorHtml = ''
@@ -1008,11 +1044,16 @@ function showNodeDetail(n, graphEdges) {
       <button class="node-detail-copy" onclick="navigator.clipboard.writeText('${n.address}').catch(()=>{})">copy</button>
     </div>
     <div class="detail-section">
-      <div class="detail-section-head">概览</div>
-      ${overviewRows.join('')}
+      <div class="detail-section-head">与种子的资金关系</div>
+      ${relRows.join('')}
     </div>
-    ${behaviorHtml}
     ${chainHtml}
+    ${behaviorHtml}
+    <div class="detail-section">
+      <details class="detail-more"><summary>整体活动量（不限于种子相关）</summary>
+        ${globalRows.join('')}
+      </details>
+    </div>
     <div style="margin-top:14px;display:flex;gap:8px">
       <a href="https://solscan.io/account/${n.address}" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">Solscan ↗</a>
       <a href="https://web3.okx.com/portfolio/${n.address}/analysis?chainIndex=501" target="_blank" style="font-family:var(--font-mono);font-size:10px;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:3px 8px">OKX ↗</a>
@@ -1806,10 +1847,12 @@ function renderTable() {
   if (!scanGraph) return
   const { from, to } = getRange()
   const minUsd  = parseFloat(document.getElementById('minUsdInput')?.value) || 0
-  // Group by displayed symbol rather than raw mint so SOL (sentinel) and wSOL
-  // (real mint) collapse into one column — they already dedupe in the token
-  // chips so this matches user expectation. symbolToMints lets the column
-  // header tooltip surface every mint that contributes to the column.
+  // Default view is now "address × seed relationship" — the per-token
+  // breakdown is a secondary mode behind a toggle. An analyst looking at
+  // the table wants to answer "who is the most connected to my target?",
+  // not "how much USDC moved on average". The per-token view is still
+  // useful for forensics; we expose both.
+  const breakdownMode = window._netFlowMode === 'token'
   const symSet = new Set(), symbolToMints = new Map(), flows = new Map()
 
   for (const t of scanGraph.transfers) {
@@ -1817,7 +1860,6 @@ function renderTable() {
     if (filterMints.size && !filterMints.has(t.mint)) continue
     const usd = edgeUsdEstimate(t.mint, t.symbol, t.amount)
     // Mirror the graph view's filters: unpriced toggle, then Min $ Value cutoff.
-    // Without this, the table happily shows spam tokens while the graph hides them.
     if (hideUnpriced && usd <= 0) continue
     if (minUsd > 0 && usd < minUsd) continue
     const sym = symbolForMint(t.mint)
@@ -1847,31 +1889,101 @@ function renderTable() {
   const symbols = [...symSet].sort((a, b) => (symFlowUsd.get(b) ?? 0) - (symFlowUsd.get(a) ?? 0))
   const nodeMap = new Map(scanGraph.nodes.map(n => [n.address, n]))
 
-  document.getElementById('flowHead').innerHTML =
-    `<tr><th>地址</th><th>位置</th>${symbols.map(s => {
-      const mints = [...(symbolToMints.get(s) ?? [])]
-      const title = mints.length > 1 ? `${s} (${mints.length} mints)` : mints[0] ?? s
-      return `<th title="${title}">${s} 入</th><th title="${title}">${s} 出</th><th title="${title}">${s} 净</th>`
-    }).join('')}</tr>`
+  // Mode toggle controls — rendered above the table head so the user can
+  // switch between "对种子关系" (default) and "按代币拆" (legacy / forensics).
+  const headEl = document.getElementById('flowHead')
+  const modeToggle = `<tr><th colspan="99" style="padding:6px 14px;border-bottom:1px solid var(--border);background:var(--surface)">
+    <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-right:8px">视图</span>
+    <button class="net-flow-mode-btn ${!breakdownMode ? 'active' : ''}" onclick="window._netFlowMode='seed';renderTable()"
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 10px;border:1px solid var(--border);background:${!breakdownMode ? '#F5A62318' : 'transparent'};color:${!breakdownMode ? 'var(--accent)' : 'var(--muted)'};border-color:${!breakdownMode ? 'var(--accent)' : 'var(--border)'};cursor:pointer;margin-right:4px">与种子的关系</button>
+    <button class="net-flow-mode-btn ${breakdownMode ? 'active' : ''}" onclick="window._netFlowMode='token';renderTable()"
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 10px;border:1px solid var(--border);background:${breakdownMode ? '#F5A62318' : 'transparent'};color:${breakdownMode ? 'var(--accent)' : 'var(--muted)'};border-color:${breakdownMode ? 'var(--accent)' : 'var(--border)'};cursor:pointer">按代币拆</button>
+  </th></tr>`
 
-  const rows = [...flows.entries()].map(([addr, nf]) => {
-    const nd  = nodeMap.get(addr) ?? { layer: 99, isSeed: false }
-    // Total absolute net flow across all tokens — drives row sort order so
-    // the biggest movers float to the top regardless of token mix.
-    const tot = symbols.reduce((s,sym) => s + Math.abs((nf[sym]?.in??0)-(nf[sym]?.out??0)), 0)
-    return { addr, nf, nd, tot }
-  }).sort((a,b) => b.tot - a.tot)
+  if (breakdownMode) {
+    // ── Legacy per-token view ───────────────────────────────────────────────
+    headEl.innerHTML = modeToggle +
+      `<tr><th>地址</th><th>位置</th>${symbols.map(s => {
+        const mints = [...(symbolToMints.get(s) ?? [])]
+        const title = mints.length > 1 ? `${s} (${mints.length} mints)` : mints[0] ?? s
+        return `<th title="${title}">${s} 入</th><th title="${title}">${s} 出</th><th title="${title}">${s} 净</th>`
+      }).join('')}</tr>`
 
-  document.getElementById('flowBody').innerHTML = rows.map(({addr,nf,nd}) => {
-    const col = LAYER_COLORS[Math.min(nd.layer, LAYER_COLORS.length-1)]
-    const cells = symbols.map(sym => {
-      const f = nf[sym] ?? {in:0,out:0}
-      const net = f.in - f.out
-      const cls = net > 0.001 ? 'pos' : net < -0.001 ? 'neg' : 'zero'
-      return `<td class="pos">${fmtN(f.in)}</td><td class="neg">${fmtN(f.out)}</td><td class="${cls}">${net>=0?'+':''}${fmtN(net)}</td>`
+    const rows = [...flows.entries()].map(([addr, nf]) => {
+      const nd  = nodeMap.get(addr) ?? { layer: 99, isSeed: false }
+      const tot = symbols.reduce((s,sym) => s + Math.abs((nf[sym]?.in??0)-(nf[sym]?.out??0)), 0)
+      return { addr, nf, nd, tot }
+    }).sort((a,b) => b.tot - a.tot)
+
+    document.getElementById('flowBody').innerHTML = rows.map(({addr,nf,nd}) => {
+      const col = LAYER_COLORS[Math.min(nd.layer, LAYER_COLORS.length-1)]
+      const cells = symbols.map(sym => {
+        const f = nf[sym] ?? {in:0,out:0}
+        const net = f.in - f.out
+        const cls = net > 0.001 ? 'pos' : net < -0.001 ? 'neg' : 'zero'
+        return `<td class="pos">${fmtN(f.in)}</td><td class="neg">${fmtN(f.out)}</td><td class="${cls}">${net>=0?'+':''}${fmtN(net)}</td>`
+      }).join('')
+      const layerLabel = nd.isSeed ? '种子' : nd.layer === 99 ? '外部' : `${nd.layer} 跳`
+      return `<tr><td><span class="dot" style="background:${col}"></span>${addr.slice(0,6)}…${addr.slice(-4)}</td><td>${layerLabel}</td>${cells}</tr>`
     }).join('')
-    const layerLabel = nd.isSeed ? '种子' : nd.layer === 99 ? '外部' : `${nd.layer} 跳`
-    return `<tr><td><span class="dot" style="background:${col}"></span>${addr.slice(0,6)}…${addr.slice(-4)}</td><td>${layerLabel}</td>${cells}</tr>`
+    return
+  }
+
+  // ── Default view: address × seed relationship ────────────────────────────
+  // Columns: 地址 / 实体 / 层 / $从种子 / $给种子 / 净 / 直连笔数 / 首末时间 / 行为
+  const seedRel = scanGraph.seedRelation ?? {}
+  const fmtDateShort = ts => ts ? new Date(ts*1000).toLocaleDateString('zh-CN', { month: 'numeric', day: 'numeric' }) : '—'
+  headEl.innerHTML = modeToggle +
+    `<tr>
+      <th>地址</th>
+      <th>实体 / 标签</th>
+      <th>层</th>
+      <th title="从种子收到">$ 收</th>
+      <th title="送给种子">$ 送</th>
+      <th title="对种子净流，正=种子流入此地址">净</th>
+      <th title="直连转账笔数">笔</th>
+      <th title="首次互动 → 末次互动">时间</th>
+    </tr>`
+
+  // Sort by |direct net + indirect total| — addresses with the most
+  // money moved against the seed surface first.
+  const rows = scanGraph.nodes
+    .filter(n => !n.isSeed)
+    .map(n => {
+      const rel = seedRel[n.address] ?? {directInUsd:0,directOutUsd:0,directTxCount:0,indirectInUsd:0,indirectOutUsd:0,firstTs:null,lastTs:null,hopDistance:Infinity}
+      const direct = rel.directInUsd + rel.directOutUsd
+      const indirect = rel.indirectInUsd + rel.indirectOutUsd
+      const sortKey = direct * 2 + indirect   // direct counts double
+      return { n, rel, sortKey, direct, indirect }
+    })
+    .sort((a,b) => b.sortKey - a.sortKey)
+
+  document.getElementById('flowBody').innerHTML = rows.map(({n, rel}) => {
+    const col       = LAYER_COLORS[Math.min(n.layer, LAYER_COLORS.length-1)]
+    const intel     = walletIntel.get(n.address)
+    const entity    = intel?.staticLabel ? `<span style="color:${entityColor(intel.staticLabel.type)};font-family:var(--font-mono);font-size:10px;font-weight:600">${intel.staticLabel.name}</span>`
+                    : intel?.behaviorTags?.length ? `<span style="color:var(--muted);font-family:var(--font-mono);font-size:10px">${intel.behaviorTags.slice(0,2).join(', ')}</span>`
+                    : '<span style="color:var(--subtle);font-size:10px">—</span>'
+    const layerLab  = n.layer === 99 ? '外部' : `${n.layer} 跳`
+    const netUsd    = rel.directInUsd - rel.directOutUsd
+    const netCls    = netUsd > 0.5 ? 'pos' : netUsd < -0.5 ? 'neg' : 'zero'
+    const netStr    = rel.directTxCount === 0 && rel.indirectInUsd + rel.indirectOutUsd > 0
+                    ? `<span style="color:var(--subtle)">间接 ${fmtN(rel.indirectInUsd + rel.indirectOutUsd)}</span>`
+                    : `<span class="${netCls}">${netUsd >= 0 ? '+' : ''}${fmtN(netUsd)}</span>`
+    const inStr     = rel.directInUsd  > 0 ? `<span class="pos">${fmtN(rel.directInUsd)}</span>`  : '<span style="color:var(--subtle)">—</span>'
+    const outStr    = rel.directOutUsd > 0 ? `<span class="neg">${fmtN(rel.directOutUsd)}</span>` : '<span style="color:var(--subtle)">—</span>'
+    const timeStr   = rel.firstTs ? `<span style="font-size:10px;color:var(--muted)">${fmtDateShort(rel.firstTs)} → ${fmtDateShort(rel.lastTs)}</span>` : '<span style="color:var(--subtle)">—</span>'
+
+    return `<tr style="cursor:pointer" onclick="(()=>{const ns=document.querySelectorAll('#mainSvg g.node');for(const g of ns){if(d3.select(g).datum()?.address==='${n.address}'){setView('graph');setTimeout(()=>g.dispatchEvent(new MouseEvent('click',{bubbles:true})),50);return;}}})()">
+      <td><span class="dot" style="background:${col}"></span>${n.address.slice(0,6)}…${n.address.slice(-4)}</td>
+      <td>${entity}</td>
+      <td><span style="color:var(--muted);font-size:11px">${layerLab}</span></td>
+      <td>${inStr}</td>
+      <td>${outStr}</td>
+      <td>${netStr}</td>
+      <td><span style="font-variant-numeric:tabular-nums">${rel.directTxCount}</span></td>
+      <td>${timeStr}</td>
+    </tr>`
   }).join('')
 }
 

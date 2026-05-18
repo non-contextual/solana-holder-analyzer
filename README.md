@@ -1,4 +1,4 @@
-# token-analyzer
+# Solana Holder Analyzer
 
 Solana 代币持仓分析工具 + 多层 transfer 大调查。两个独立工具合一。
 

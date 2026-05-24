@@ -3,7 +3,7 @@ import { serve }    from '@hono/node-server'
 import { Hono }     from 'hono'
 import { cors }     from 'hono/cors'
 import { join }     from 'path'
-import { readFileSync } from 'fs'
+import { readFileSync, existsSync } from 'fs'
 import { analyzeToken }    from './analyzer'
 import { runTransferScan } from './transfer-scan'
 import { saveSnapshot, listSnapshots, listAllSnapshots, loadSnapshot, deleteSnapshot,
@@ -52,6 +52,27 @@ app.get('/', (c) => {
 app.get('/transfers', (c) => {
   const html = readFileSync(join(__dirname, '..', 'web', 'transfers.html'), 'utf8')
   return c.html(html)
+})
+
+// Static font files for Non design system
+const FONT_TYPES: Record<string, string> = {
+  '.woff2': 'font/woff2',
+  '.woff':  'font/woff',
+  '.ttf':   'font/ttf',
+}
+app.get('/fonts/:file', (c) => {
+  const file = c.req.param('file').replace(/[^a-zA-Z0-9._-]/g, '')
+  const filePath = join(__dirname, '..', 'web', 'fonts', file)
+  if (!existsSync(filePath)) return c.notFound()
+  const ext = file.slice(file.lastIndexOf('.')).toLowerCase()
+  const mime = FONT_TYPES[ext] ?? 'application/octet-stream'
+  const buf = readFileSync(filePath)
+  return new Response(buf, {
+    headers: {
+      'Content-Type': mime,
+      'Cache-Control': 'public, max-age=31536000, immutable',
+    },
+  })
 })
 
 // SSE analysis endpoint

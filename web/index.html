@@ -4,8 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Token Analyzer</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 300 700; font-display: swap; src: url("/fonts/space-grotesk-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 300 700; font-display: swap; src: url("/fonts/space-grotesk-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 300 600; font-display: swap; src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 300 600; font-display: swap; src: url("/fonts/jetbrains-mono-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+</style>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,28 +19,48 @@
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   }
   /* Dark scrollbars matching the surface ramp (Firefox + WebKit). */
-  html { scrollbar-color: #2A2A2A #0A0A0A; scrollbar-width: thin; }
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: #0A0A0A; }
-  *::-webkit-scrollbar-thumb { background: #2A2A2A; border: 2px solid #0A0A0A; border-radius: 0; }
-  *::-webkit-scrollbar-thumb:hover { background: #3A3A3A; }
-  *::-webkit-scrollbar-corner { background: #0A0A0A; }
+  html { scrollbar-color: var(--hairline) var(--bg); scrollbar-width: thin; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 0; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--hairline-2); }
+  *::-webkit-scrollbar-corner { background: var(--bg); }
   :root {
-    --bg:        #0A0A0A;
-    --surface:   #161616;
-    --surface-2: #1F1F1F;
-    --border:    #2A2A2A;
-    --border-2:  #3A3A3A;
-    --text:      #F2F2F0;
-    --muted:     #8C8C8A;
-    --subtle:    #5A5A58;
-    --accent:    #F5A623;
-    --mint:      #5DD49A;
-    --red:       #E84B4B;
-    --blue:      #6B9BFF;
-    --font-mono: 'JetBrains Mono', monospace;
-    --font-body: 'Geist', sans-serif;
-    --font-data: 'Geist Mono', monospace;
+    /* Non Design System */
+    --bg:          #0A0A0A;
+    --panel:       #0F0F0F;
+    --panel-2:     #141414;
+    --panel-3:     #1A1A1A;
+    --ink:         #F5F5F5;
+    --ink-2:       rgba(245, 245, 245, 0.62);
+    --ink-3:       rgba(245, 245, 245, 0.40);
+    --ink-4:       rgba(245, 245, 245, 0.22);
+    --ink-5:       rgba(245, 245, 245, 0.10);
+    --hairline:    rgba(245, 245, 245, 0.14);
+    --hairline-2:  rgba(245, 245, 245, 0.08);
+    --grid:        rgba(245, 245, 245, 0.04);
+    --signal:      #C5FF4A;
+    --signal-dim:  rgba(197, 255, 74, 0.30);
+    --alert:       #FF5C5C;
+    --alert-dim:   rgba(255, 92, 92, 0.30);
+    --font-body:   "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --font-mono:   "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    /* data colours — semantic chart encoding only, not UI accents */
+    --data-green:  #5DD49A;
+    --data-blue:   #6B9BFF;
+    /* backwards-compat aliases so existing CSS rules auto-update */
+    --surface:   var(--panel);
+    --surface-2: var(--panel-2);
+    --border:    var(--hairline);
+    --border-2:  var(--hairline-2);
+    --text:      var(--ink);
+    --muted:     var(--ink-2);
+    --subtle:    var(--ink-3);
+    --accent:    var(--signal);
+    --red:       var(--alert);
+    --mint:      var(--data-green);
+    --blue:      var(--data-blue);
+    --font-data: var(--font-mono);
   }
   html, body { height: 100%; }
   body { background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; line-height: 1.5; min-height: 100vh; }
@@ -78,9 +102,9 @@
   button { font-family: var(--font-mono); font-size: 12px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; cursor: pointer; border: none; border-radius: 0; transition: opacity 0.15s; }
   button:hover:not(:disabled) { opacity: 0.85; }
   button:disabled { opacity: 0.4; cursor: not-allowed; }
-  .btn-primary { background: var(--accent); color: #000; padding: 9px 20px; }
-  .btn-secondary { background: var(--surface-2); color: var(--muted); border: 1px solid var(--border); padding: 9px 16px; }
-  .btn-accent-outline { background: transparent; color: var(--accent); border: 1px solid var(--accent); padding: 9px 16px; }
+  .btn-primary { background: var(--ink); color: var(--bg); padding: 9px 20px; }
+  .btn-secondary { background: transparent; color: var(--muted); border: 1px solid var(--border); padding: 9px 16px; }
+  .btn-accent-outline { background: transparent; color: var(--signal); border: 1px solid var(--signal); padding: 9px 16px; }
 
   /* ── Progress ── */
   .progress-section { padding: 12px 24px; border-bottom: 1px solid var(--border); display: none; align-items: center; gap: 12px; }
@@ -119,9 +143,9 @@
   /* AND/OR toggle */
   .logic-toggle { display: flex; border: 1px solid var(--border); overflow: hidden; flex-shrink: 0; }
   .logic-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 5px 12px; background: transparent; color: var(--muted); border: none; cursor: pointer; transition: background-color 0.1s, color 0.1s; border-radius: 0; }
-  .logic-btn.active { background: var(--accent); color: #000; }
+  .logic-btn.active { background: var(--ink); color: var(--bg); }
 
-  .filter-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent); background: #F5A62310; border: 1px solid #F5A62330; padding: 3px 8px; white-space: nowrap; }
+  .filter-tag { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--signal); background: transparent; border: 1px solid var(--hairline); padding: 3px 8px; white-space: nowrap; }
 
   /* ── Table ── */
   main { flex: 1; overflow: auto; }
@@ -149,10 +173,10 @@
 
   /* account type badges */
   .acct-badge { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; padding: 1px 5px; border: 1px solid; flex-shrink: 0; }
-  .badge-program      { color: #6B9BFF; border-color: #6B9BFF; background: #6B9BFF10; }
-  .badge-bonding_curve{ color: #F5A623; border-color: #F5A623; background: #F5A62310; }
-  .badge-lp           { color: #5DD49A; border-color: #5DD49A; background: #5DD49A10; }
-  .badge-pda          { color: #8C8C8A; border-color: #3A3A3A; background: transparent; }
+  .badge-program      { color: var(--data-blue);  border-color: var(--data-blue);  background: transparent; }
+  .badge-bonding_curve{ color: var(--signal);      border-color: var(--signal);     background: transparent; }
+  .badge-lp           { color: var(--data-green);  border-color: var(--data-green); background: transparent; }
+  .badge-pda          { color: var(--ink-3);       border-color: var(--hairline);   background: transparent; }
 
   .td-num { text-align: right; }
   .td-sub { font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -181,20 +205,20 @@
   .co-dropdown.hidden { display: none; }
   .co-item { display: flex; align-items: center; gap: 8px; padding: 7px 10px; cursor: pointer; font-family: var(--font-data); font-size: 12px; border-bottom: 1px solid var(--border); }
   .co-item:last-child { border-bottom: none; }
-  .co-item:hover, .co-item.selected { background: var(--surface-2); }
-  .co-item-logo { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; background: var(--border); flex-shrink: 0; }
-  .co-item-symbol { color: var(--text); font-weight: 500; min-width: 60px; }
-  .co-item-usd { margin-left: auto; font-family: var(--font-data); font-size: 11px; color: var(--muted); white-space: nowrap; }
-  .co-item-count { font-family: var(--font-mono); font-size: 10px; color: var(--accent); letter-spacing: 0.06em; background: #F5A62315; border: 1px solid #F5A62330; padding: 1px 6px; }
-  .co-item-count.no-usd { margin-left: auto; }   /* fallback when there's no USD column (co-trades) */
-  .co-item-mint { color: var(--subtle); font-size: 11px; }
+  .co-item:hover, .co-item.selected { background: var(--panel-2); }
+  .co-item-logo { width: 18px; height: 18px; border-radius: 50%; object-fit: cover; background: var(--panel-2); flex-shrink: 0; }
+  .co-item-symbol { color: var(--ink); font-weight: 500; min-width: 60px; }
+  .co-item-usd { margin-left: auto; font-family: var(--font-mono); font-size: 11px; color: var(--ink-2); white-space: nowrap; }
+  .co-item-count { font-family: var(--font-mono); font-size: 10px; color: var(--signal); letter-spacing: 0.06em; background: transparent; border: 1px solid var(--signal-dim); padding: 1px 6px; }
+  .co-item-count.no-usd { margin-left: auto; }
+  .co-item-mint { color: var(--ink-3); font-size: 11px; }
 
   /* ── Empty / error ── */
   .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 80px 24px; color: var(--muted); text-align: center; }
   .empty-icon { font-family: var(--font-mono); font-size: 24px; color: var(--subtle); }
   .empty-title { font-family: var(--font-mono); font-size: 13px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; }
   .empty-sub { font-size: 13px; color: var(--subtle); max-width: 400px; }
-  .error-bar { background: #E84B4B0E; border: 1px solid var(--red); color: var(--red); padding: 10px 24px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; display: none; margin: 12px 24px; }
+  .error-bar { background: transparent; border: 1px solid var(--alert); color: var(--alert); padding: 10px 24px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; display: none; margin: 12px 24px; }
   .error-bar.visible { display: block; }
 
   /* ── Footer ── */
@@ -209,7 +233,7 @@
   /* History panel */
   .hist-item { display: flex; align-items: center; gap: 10px; padding: 9px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
   .hist-item:hover { background: var(--surface-2); }
-  .hist-item.active { background: #F5A62310; border-left: 2px solid var(--accent); }
+  .hist-item.active { background: var(--panel-2); border-left: 2px solid var(--signal); }
   .hist-meta { flex: 1; min-width: 0; }
   .hist-time { font-family: var(--font-mono); font-size: 11px; color: var(--text); font-weight: 500; }
   .hist-sub  { font-family: var(--font-data); font-size: 11px; color: var(--muted); margin-top: 2px; }
@@ -217,18 +241,46 @@
   .hist-del:hover { color: var(--red); }
   .hist-empty { padding: 20px; text-align: center; font-family: var(--font-mono); font-size: 11px; color: var(--subtle); letter-spacing: 0.06em; }
   .hist-header { padding: 8px 14px; border-bottom: 1px solid var(--border); font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); display: flex; justify-content: space-between; align-items: center; }
-  .snapshot-banner { background: #F5A62315; border-bottom: 1px solid #F5A62330; padding: 6px 24px; font-family: var(--font-mono); font-size: 11px; color: var(--accent); display: none; letter-spacing: 0.04em; }
+  .snapshot-banner { background: transparent; border-bottom: 1px solid var(--signal-dim); padding: 6px 24px; font-family: var(--font-mono); font-size: 11px; color: var(--signal); display: none; letter-spacing: 0.04em; }
   .snapshot-banner.visible { display: flex; align-items: center; gap: 12px; }
+
+  /* ── Account type filter toggles ── */
+  .acct-type-toggle { display: flex; gap: 4px; }
+  .acct-btn { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; padding: 3px 7px; border: 1px solid var(--border); background: transparent; color: var(--subtle); cursor: pointer; border-radius: 0; transition: border-color var(--dur, 150ms) ease-out, color var(--dur, 150ms) ease-out; }
+  .acct-btn.active { color: var(--ink); border-color: var(--hairline-2); background: transparent; }
+  .acct-btn.active.badge-pda           { color: var(--ink-3);      border-color: var(--hairline);    }
+  .acct-btn.active.badge-program       { color: var(--data-blue);  border-color: var(--data-blue);   }
+  .acct-btn.active.badge-lp            { color: var(--data-green); border-color: var(--data-green);  }
+  .acct-btn.active.badge-bonding_curve { color: var(--signal);     border-color: var(--signal);      }
+
+  /* ── Preset dropdown ── */
+  .preset-wrap { position: relative; }
+  .preset-dropdown { position: absolute; bottom: calc(100% + 4px); right: 0; background: var(--surface); border: 1px solid var(--border-2); min-width: 180px; z-index: 300; }
+  .preset-dropdown.hidden { display: none; }
+  .preset-item { display: flex; align-items: center; gap: 6px; padding: 7px 10px; cursor: pointer; font-family: var(--font-data); font-size: 12px; border-bottom: 1px solid var(--border); }
+  .preset-item:last-child { border-bottom: none; }
+  .preset-item:hover { background: var(--surface-2); }
+  .preset-item-name { flex: 1; }
+  .preset-item-del { font-size: 11px; color: var(--subtle); background: none; border: none; cursor: pointer; padding: 0 2px; font-family: var(--font-mono); letter-spacing: 0; text-transform: none; }
+  .preset-item-del:hover { color: var(--red); }
+  .preset-save { color: var(--accent); font-size: 11px; font-family: var(--font-mono); letter-spacing: 0.04em; }
+
+  /* ── Snapshot diff ── */
+  .diff-rank-delta { font-size: 9px; font-family: var(--font-mono); margin-left: 3px; }
+  .diff-up   { color: var(--mint); }
+  .diff-down { color: var(--red); }
+  .diff-new  { font-family: var(--font-mono); font-size: 9px; font-weight: 700; letter-spacing: 0.08em; color: var(--data-green); border: 1px solid var(--data-green); background: transparent; padding: 1px 5px; flex-shrink: 0; }
+  .diff-gone { opacity: 0.45; }
 
   /* ── Checkbox column ── */
   .th-check, .td-check { width: 28px; padding: 0 6px; text-align: center; }
   .row-checkbox { width: 13px; height: 13px; cursor: pointer; accent-color: var(--accent); }
 
   /* ── Transfer Scan Panel ── */
-  .scan-panel { position: fixed; bottom: 0; left: 0; right: 0; height: 85vh; background: var(--bg); border-top: 2px solid var(--accent); z-index: 200; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease; }
+  .scan-panel { position: fixed; bottom: 0; left: 0; right: 0; height: 85vh; background: var(--bg); border-top: 2px solid var(--signal); z-index: 200; display: flex; flex-direction: column; transform: translateY(100%); transition: transform 0.3s ease; }
   .scan-panel.open { transform: translateY(0); }
   .scan-header { display: flex; align-items: center; gap: 16px; padding: 12px 24px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; }
-  .scan-title { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--accent); }
+  .scan-title { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: var(--signal); }
   .scan-close { margin-left: auto; background: none; border: 1px solid var(--border); color: var(--muted); padding: 5px 12px; font-size: 12px; cursor: pointer; border-radius: 0; font-family: var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; }
   .scan-close:hover { color: var(--text); border-color: var(--border-2); }
 
@@ -236,11 +288,11 @@
   .scan-group { display: flex; align-items: center; gap: 8px; }
   .scan-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); }
   .depth-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 4px 10px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; text-transform: uppercase; }
-  .depth-btn.active { border-color: var(--accent); color: var(--accent); background: #F5A62310; }
+  .depth-btn.active { border-color: var(--signal); color: var(--signal); background: transparent; border-left-width: 2px; }
   .scan-input { font-family: var(--font-data); font-size: 12px; background: var(--bg); border: 1px solid var(--border-2); color: var(--text); padding: 5px 8px; outline: none; border-radius: 0; }
   .scan-input:focus { border-color: var(--accent); }
   .scan-input[type="date"] { width: 140px; color-scheme: dark; }
-  .btn-scan { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--accent); color: #000; border: none; padding: 7px 18px; cursor: pointer; border-radius: 0; }
+  .btn-scan { font-family: var(--font-mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--ink); color: var(--bg); border: none; padding: 7px 18px; cursor: pointer; border-radius: 0; }
   .btn-scan:disabled { opacity: 0.4; cursor: not-allowed; }
   .scan-wallet-badge { font-family: var(--font-data); font-size: 11px; color: var(--muted); }
 
@@ -251,8 +303,8 @@
   .scan-progress.visible { display: block; }
   .scan-log { font-family: var(--font-data); font-size: 11px; color: var(--muted); line-height: 1.8; max-height: 200px; overflow-y: auto; }
   .scan-log-line { display: block; }
-  .scan-log-line.layer { color: var(--accent); font-weight: 500; }
-  .scan-log-line.done  { color: var(--mint); }
+  .scan-log-line.layer { color: var(--signal); font-weight: 500; }
+  .scan-log-line.done  { color: var(--data-green); }
 
   /* Graph view */
   .scan-graph-area { flex: 1; display: none; flex-direction: column; }
@@ -260,10 +312,10 @@
 
   .scan-controls { display: flex; align-items: center; gap: 12px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; flex-wrap: wrap; }
   .token-chip { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 10px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
-  .token-chip.active { border-color: var(--accent); color: var(--accent); background: #F5A62310; }
+  .token-chip.active { border-color: var(--signal); color: var(--signal); background: transparent; }
   .view-toggle { display: flex; border: 1px solid var(--border); margin-left: auto; }
   .view-btn { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; padding: 4px 12px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
-  .view-btn.active { background: var(--accent); color: #000; }
+  .view-btn.active { background: var(--ink); color: var(--bg); }
 
   /* Date range slider */
   .scan-slider { padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; display: none; }
@@ -312,7 +364,7 @@
         <button onclick="toggleHistory()" id="btnHistory" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);background:none;border:1px solid var(--border);padding:4px 10px;cursor:pointer">History ▾</button>
         <div id="historyPanel" style="display:none;position:absolute;top:100%;right:0;margin-top:4px;background:var(--surface);border:1px solid var(--border-2);min-width:320px;max-height:340px;overflow-y:auto;z-index:300"></div>
       </div>
-      <a href="/transfers" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:4px 10px;">Transfer →</a>
+      <a id="transferLink" href="/transfers" style="font-family:var(--font-mono);font-size:11px;letter-spacing:0.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;border:1px solid var(--border);padding:4px 10px;">Transfer →</a>
     </nav>
   </header>
 
@@ -334,7 +386,8 @@
   <div class="error-bar" id="errorBar"></div>
   <div class="snapshot-banner" id="snapBanner">
     <span id="snapBannerText">Viewing snapshot</span>
-    <button onclick="exitSnapshot()" style="font-family:var(--font-mono);font-size:10px;background:none;border:1px solid #F5A62350;color:var(--accent);padding:2px 8px;cursor:pointer;letter-spacing:0.06em;text-transform:uppercase">× Exit</button>
+    <span id="diffSummary" style="color:var(--muted);font-size:10px;margin-left:4px"></span>
+    <button onclick="exitSnapshot()" style="margin-left:auto;font-family:var(--font-mono);font-size:10px;background:none;border:1px solid var(--signal-dim);color:var(--signal);padding:2px 8px;cursor:pointer;letter-spacing:0.06em;text-transform:uppercase">× Exit</button>
   </div>
 
   <div class="progress-section" id="progressSection">
@@ -433,7 +486,21 @@
         <input type="text" class="filter-input wide" id="fSearch" placeholder="address…" style="width:150px" oninput="applyFilters()" />
       </div>
 
-      <button class="btn-secondary" style="margin-left:auto;padding:5px 12px;font-size:11px" onclick="clearFilters()">Clear</button>
+      <div class="filter-group">
+        <span class="filter-label">Show</span>
+        <div class="acct-type-toggle">
+          <button class="acct-btn active badge-pda"           id="aBtn-pda"           onclick="toggleAccountType('pda',this)"           title="PDA accounts">PDA</button>
+          <button class="acct-btn active badge-program"       id="aBtn-program"       onclick="toggleAccountType('program',this)"       title="Program accounts">PROG</button>
+          <button class="acct-btn active badge-lp"            id="aBtn-lp"            onclick="toggleAccountType('lp',this)"            title="LP Pool accounts">LP</button>
+          <button class="acct-btn active badge-bonding_curve" id="aBtn-bonding_curve" onclick="toggleAccountType('bonding_curve',this)" title="Bonding curve accounts">BONDING</button>
+        </div>
+      </div>
+
+      <div class="preset-wrap" style="margin-left:auto">
+        <button class="btn-secondary" style="padding:5px 12px;font-size:11px" onclick="togglePresetsDropdown(event)">Presets ▾</button>
+        <div class="preset-dropdown hidden" id="presetDropdown"></div>
+      </div>
+      <button class="btn-secondary" style="padding:5px 12px;font-size:11px" onclick="clearFilters()">Clear</button>
     </div>
   </div>
 
@@ -504,6 +571,7 @@
     </button>
     <button class="btn-secondary" id="btnSaveSnap" style="padding:7px 14px;display:none" onclick="saveSnapshot()">Save Snapshot</button>
     <button class="btn-secondary" style="padding:7px 14px" onclick="copyCSV()">Copy CSV</button>
+    <button class="btn-secondary" id="btnCopyAddresses" style="padding:7px 14px" onclick="copyAddresses()">Copy Addresses</button>
   </div>
 
 </div>
@@ -534,6 +602,10 @@
     <div class="scan-group">
       <span class="scan-label">To</span>
       <input type="date" class="scan-input" id="scanTo" />
+    </div>
+    <div class="scan-group">
+      <span class="scan-label">Min $ Value</span>
+      <input type="number" class="scan-input" id="scanMinUsd" value="0" min="0" step="1" style="width:70px" title="Hide edges below this USD value" oninput="if(scanGraph)renderGraph()" />
     </div>
     <button class="btn-scan" id="btnStartScan" onclick="startTransferScan()">Start Scan</button>
   </div>
@@ -615,6 +687,10 @@ let sortKey       = 'supplyPct'
 let sortDir       = -1
 let logicMode     = 'AND'
 let currentSrc    = null
+let excludedTypes = new Set()          // account types hidden by filter toggles
+let diffBaseWallets = []               // live wallets saved before loading snapshot
+let diffMode      = false
+let diffBaseMap   = new Map()          // address → baseWallet for O(1) lookup
 
 // ── Analysis ──────────────────────────────────────────────────────────────────
 function startAnalysis() {
@@ -623,6 +699,7 @@ function startAnalysis() {
   if (!mint) { showError('Enter a token mint address.'); return }
 
   cancelAnalysis()
+  exitSnapshot()   // clear snapshot banner + diff state before fresh analysis
   allWallets = []; filteredRows = []; tokenInfo = null
   hideError(); clearTableDisplay()
   document.getElementById('progressSection').classList.add('visible')
@@ -764,6 +841,11 @@ function buildFilterConditions(w) {
   const search = getStr('fSearch')
   if (search) conds.push(w.address.toLowerCase().includes(search))
 
+  if (excludedTypes.size > 0) {
+    const t = w.accountType ?? 'wallet'
+    conds.push(!excludedTypes.has(t))
+  }
+
   return conds
 }
 
@@ -783,6 +865,10 @@ function clearFilters() {
    'fMinTokenSpl','fMaxTokenSpl','fMin7d','fMax7d','fMin90d','fMax90d',
    'fMinSupplyPct','fSearch'].forEach(id => document.getElementById(id).value = '')
   clearCoHolds(); clearCoTrades()
+  // Reset account type toggles
+  excludedTypes.clear()
+  document.querySelectorAll('.acct-btn').forEach(b => b.classList.add('active'))
+  applyFilters()
 }
 
 // ── Co-holds dropdown ─────────────────────────────────────────────────────────
@@ -926,6 +1012,8 @@ function renderTable() {
   }
   table.style.display = ''; empty.style.display = 'none'
 
+  if (diffMode) renderDiffSummary()
+
   tbody.innerHTML = filteredRows.map(w => {
     const okxUrl = `https://web3.okx.com/portfolio/${w.address}/analysis?chainIndex=501`
 
@@ -969,12 +1057,25 @@ function renderTable() {
     const since = w.holdingTimestamp ? formatDate(w.holdingTimestamp) : '—'
     const holdPct = w.holdAmountPctForMaxHold != null ? `<div class="td-sub">${w.holdAmountPctForMaxHold.toFixed(0)}% of max</div>` : ''
 
-    return `<tr>
+    // Diff indicators
+    let rankCell = `${w.rank}`
+    let newBadge = ''
+    if (diffMode) {
+      const base = diffBaseMap.get(w.address)
+      if (!base) {
+        newBadge = `<span class="diff-new">NEW</span>`
+      } else {
+        const delta = base.rank - w.rank   // positive = rank improved (moved up)
+        if (delta !== 0) rankCell += `<span class="diff-rank-delta ${delta > 0 ? 'diff-up' : 'diff-down'}">${delta > 0 ? '↑' : '↓'}${Math.abs(delta)}</span>`
+      }
+    }
+
+    return `<tr${diffMode && !diffBaseMap.has(w.address) ? ' class="diff-new-row"' : ''}>
       <td class="td-check"><input type="checkbox" class="row-checkbox" data-addr="${w.address}" ${selectedForScan.has(w.address) ? 'checked' : ''} onclick="toggleWalletScan('${w.address}', this)" /></td>
-      <td class="td-rank">${w.rank}</td>
+      <td class="td-rank">${rankCell}</td>
       <td class="td-address"><div class="addr-wrap">
         <a class="addr-link" href="${okxUrl}" target="_blank">${shortAddr(w.address)}</a>
-        ${acctBadge(w.accountType)}
+        ${newBadge}${acctBadge(w.accountType)}
         <button class="copy-btn" onclick="copyText('${w.address}')" title="Copy full address">⊙</button>
       </div><div class="td-sub">${supFmt}</div></td>
       <td class="td-num">${supFmt}<div class="pct-bar"><div class="pct-fill pct-fill-amber" style="width:${barWidth}%"></div></div><div class="td-sub">${w.balanceUsd != null ? (w.balanceUsdEstimated ? '~$' : '$') + fmtNum(w.balanceUsd, 0) : ''}</div></td>
@@ -1091,6 +1192,163 @@ function copyCSV() {
   navigator.clipboard.writeText([headers.join(','), ...rows].join('\n')).catch(() => {})
 }
 
+function copyAddresses() {
+  const selected = [...selectedForScan]
+  const addrs = selected.length > 0 ? selected : filteredRows.map(w => w.address)
+  navigator.clipboard.writeText(addrs.join('\n')).catch(() => {})
+}
+
+function updateCopyAddressesBtn() {
+  const btn = document.getElementById('btnCopyAddresses')
+  if (!btn) return
+  const n = selectedForScan.size
+  btn.textContent = n > 0 ? `Copy Addresses (${n})` : 'Copy Addresses'
+}
+
+// ── Account type filter ───────────────────────────────────────────────────────
+function toggleAccountType(type, btn) {
+  if (excludedTypes.has(type)) {
+    excludedTypes.delete(type)
+    btn.classList.add('active')
+  } else {
+    excludedTypes.add(type)
+    btn.classList.remove('active')
+  }
+  applyFilters()
+}
+
+// ── Filter presets ────────────────────────────────────────────────────────────
+const PRESET_KEY = 'token-analyzer-filter-presets'
+
+function getFilterState() {
+  const ids = ['fMinPortfolio','fMaxPortfolio','fMinTokenTotal','fMaxTokenTotal',
+               'fMinTokenSpl','fMaxTokenSpl','fMin7d','fMax7d','fMin90d','fMax90d',
+               'fMinSupplyPct']
+  const values = {}
+  ids.forEach(id => { const v = document.getElementById(id)?.value.trim(); if (v) values[id] = v })
+  if (coHoldsMint)   values['coHoldsMint']   = coHoldsMint
+  if (coHoldsSymbol) values['coHoldsSymbol'] = coHoldsSymbol
+  if (coTradesMint)  values['coTradesMint']  = coTradesMint
+  if (coTradesSymbol)values['coTradesSymbol']= coTradesSymbol
+  if (logicMode !== 'AND') values['logicMode'] = logicMode
+  if (excludedTypes.size) values['excludedTypes'] = [...excludedTypes]
+  return values
+}
+
+function applyFilterState(state) {
+  const ids = ['fMinPortfolio','fMaxPortfolio','fMinTokenTotal','fMaxTokenTotal',
+               'fMinTokenSpl','fMaxTokenSpl','fMin7d','fMax7d','fMin90d','fMax90d',
+               'fMinSupplyPct']
+  ids.forEach(id => {
+    const el = document.getElementById(id)
+    if (el) el.value = state[id] ?? ''
+  })
+  if (state.logicMode) setLogic(state.logicMode)
+  if (state.excludedTypes) {
+    excludedTypes = new Set(state.excludedTypes)
+    document.querySelectorAll('.acct-btn').forEach(b => {
+      const t = b.id.replace('aBtn-', '')
+      b.classList.toggle('active', !excludedTypes.has(t))
+    })
+  } else {
+    excludedTypes.clear()
+    document.querySelectorAll('.acct-btn').forEach(b => b.classList.add('active'))
+  }
+  // Restore co-holds/co-trades (best-effort)
+  if (state.coHoldsMint && sharedTokens.length) {
+    const tok = sharedTokens.find(t => t.mint === state.coHoldsMint)
+    if (tok) { selectCoHolds({ dataset: { mint: state.coHoldsMint, symbol: state.coHoldsSymbol ?? tok.symbol } }) }
+  }
+  if (state.coTradesMint && sharedTradedTokens.length) {
+    const tok = sharedTradedTokens.find(t => t.mint === state.coTradesMint)
+    if (tok) { selectCoTrades({ dataset: { mint: state.coTradesMint, symbol: state.coTradesSymbol ?? tok.symbol } }) }
+  }
+  applyFilters()
+}
+
+function loadPresets() {
+  try { return JSON.parse(localStorage.getItem(PRESET_KEY) || '[]') } catch { return [] }
+}
+
+function savePresetsToStorage(presets) {
+  localStorage.setItem(PRESET_KEY, JSON.stringify(presets))
+}
+
+function togglePresetsDropdown(e) {
+  e.stopPropagation()
+  const dd = document.getElementById('presetDropdown')
+  if (dd.classList.contains('hidden')) {
+    renderPresetsDropdown()
+    dd.classList.remove('hidden')
+    document.addEventListener('click', hidePresetsDropdown, { once: true })
+  } else {
+    dd.classList.add('hidden')
+  }
+}
+
+function hidePresetsDropdown() {
+  document.getElementById('presetDropdown')?.classList.add('hidden')
+}
+
+function renderPresetsDropdown() {
+  const dd = document.getElementById('presetDropdown')
+  const presets = loadPresets()
+  const items = presets.map((p, i) => `
+    <div class="preset-item" onclick="applyPreset(${i}); hidePresetsDropdown()">
+      <span class="preset-item-name">${p.name}</span>
+      <button class="preset-item-del" onclick="event.stopPropagation(); deletePreset(${i})" title="Delete">✕</button>
+    </div>`).join('')
+  dd.innerHTML = items + `<div class="preset-item preset-save" onclick="saveCurrentPreset(); hidePresetsDropdown()">+ Save current…</div>`
+}
+
+function applyPreset(i) {
+  const presets = loadPresets()
+  if (presets[i]) applyFilterState(presets[i].state)
+}
+
+function deletePreset(i) {
+  const presets = loadPresets()
+  presets.splice(i, 1)
+  savePresetsToStorage(presets)
+  renderPresetsDropdown()
+}
+
+function saveCurrentPreset() {
+  const name = prompt('Preset name:')
+  if (!name) return
+  const presets = loadPresets()
+  presets.push({ name: name.trim(), state: getFilterState() })
+  savePresetsToStorage(presets)
+}
+
+// ── Snapshot diff helpers ─────────────────────────────────────────────────────
+function enterDiffMode(baseWallets) {
+  diffBaseWallets = baseWallets
+  diffMode = true
+  diffBaseMap = new Map(baseWallets.map(w => [w.address, w]))
+
+  const newCount  = 0  // computed in renderDiffSummary after table renders
+  renderDiffSummary()
+}
+
+function exitDiffMode() {
+  diffBaseWallets = []
+  diffMode = false
+  diffBaseMap = new Map()
+  document.getElementById('diffSummary').textContent = ''
+}
+
+function renderDiffSummary() {
+  if (!diffMode || !allWallets.length) return
+  const snapAddrs = new Set(allWallets.map(w => w.address))
+  const newCount  = allWallets.filter(w => !diffBaseMap.has(w.address)).length
+  const goneCount = diffBaseWallets.filter(w => !snapAddrs.has(w.address)).length
+  const parts = []
+  if (newCount)  parts.push(`+${newCount} new`)
+  if (goneCount) parts.push(`−${goneCount} exited`)
+  document.getElementById('diffSummary').textContent = parts.length ? `· ${parts.join(', ')}` : ''
+}
+
 document.addEventListener('keydown', e => {
   if (e.key === 'Enter' && document.activeElement === document.getElementById('mintInput')) startAnalysis()
 })
@@ -1101,6 +1359,11 @@ window.handleEvent = function(ev) {
   _origComplete(ev)
   if (ev.type === 'complete') {
     document.getElementById('btnSaveSnap').style.display = ''
+    // Update Transfer → link to carry target token context
+    if (tokenInfo?.mint) {
+      const qs = `?mint=${encodeURIComponent(tokenInfo.mint)}${tokenPrice ? `&price=${tokenPrice}` : ''}`
+      document.getElementById('transferLink').href = `/transfers${qs}`
+    }
   }
 }
 
@@ -1191,6 +1454,14 @@ async function loadSnapshot(mint, filename) {
   if (!res.ok) return
   const snap = await res.json()
 
+  // If we currently have live (non-snapshot) analysis data for the same token,
+  // save it as the diff baseline so the user can see what changed.
+  if (allWallets.length > 0 && !currentSnapshotFile && tokenInfo?.mint === snap.token.mint) {
+    enterDiffMode([...allWallets])
+  } else {
+    exitDiffMode()
+  }
+
   // Replace current state with snapshot data
   allWallets   = snap.wallets
   filteredRows = snap.wallets
@@ -1227,8 +1498,8 @@ async function loadSnapshot(mint, filename) {
 
 function exitSnapshot() {
   currentSnapshotFile = null
+  exitDiffMode()
   document.getElementById('snapBanner').classList.remove('visible')
-  // Don't clear the data — just remove the snapshot indicator
 }
 
 async function deleteSnap(e, mint, filename) {
@@ -1266,6 +1537,7 @@ function updateScanBadge() {
   document.getElementById('btnTransferScan').style.display = allWallets.length ? '' : 'none'
   const wc = document.getElementById('scanWalletCount')
   if (wc) wc.textContent = `${n} wallet${n !== 1 ? 's' : ''} selected`
+  updateCopyAddressesBtn()
 }
 
 // Show scan button when analysis finishes
@@ -1273,13 +1545,14 @@ const _origStopAnalysis = stopAnalysis
 window.stopAnalysis = function() { _origStopAnalysis(); updateScanBadge() }
 
 // ── Scan panel state ──────────────────────────────────────────────────────────
-let scanDepth   = 1
-let scanGraph   = null      // full TransferGraph from server
-let scanSrc     = null      // EventSource
-let sliderMin   = 0         // unix seconds (full range)
-let sliderMax   = 0
-let filterMints = new Set() // active token filter (empty = all)
-let currentView = 'graph'
+let scanDepth    = 1
+let scanGraph    = null      // full TransferGraph from server
+let scanSrc      = null      // EventSource
+let sliderMin    = 0         // unix seconds (full range)
+let sliderMax    = 0
+let filterMints  = new Set() // active token filter (empty = all)
+let currentView  = 'graph'
+let scanPrices   = new Map() // mint → { price, liquidity, symbol } from DexScreener
 
 // Init default date range to last 7 days
 ;(function initDates() {
@@ -1322,7 +1595,8 @@ function startTransferScan() {
   const to      = Math.floor(new Date(document.getElementById('scanTo').value).getTime() / 1000) + 86399
   const expand  = parseInt(document.getElementById('scanExpand').value) || 15
 
-  const url = `/api/transfers?wallets=${encodeURIComponent(wallets)}&from=${from}&to=${to}&depth=${scanDepth}&expand=${expand}`
+  let url = `/api/transfers?wallets=${encodeURIComponent(wallets)}&from=${from}&to=${to}&depth=${scanDepth}&expand=${expand}`
+  if (tokenInfo?.mint)  url += `&targetMint=${encodeURIComponent(tokenInfo.mint)}`
   const es  = new EventSource(url)
   scanSrc   = es
 
@@ -1349,6 +1623,10 @@ function appendLog(msg, cls = '') {
 function handleScanEvent(ev) {
   if (ev.type === 'scan_layer') {
     appendLog(`▶ Layer ${ev.layer}: scanning ${ev.total} wallets…`, 'layer')
+  } else if (ev.type === 'scan_prices') {
+    scanPrices = new Map(Object.entries(ev.prices))
+    appendLog(`  ✓ Prices: ${scanPrices.size} tokens priced via DexScreener`, 'done')
+    if (scanGraph) renderGraph()   // re-render with real USD values
   } else if (ev.type === 'scan_wallet') {
     if (ev.done === ev.total) appendLog(`  ✓ Layer ${ev.layer} complete (${ev.total} wallets)`, 'done')
   } else if (ev.type === 'scan_expand') {
@@ -1378,23 +1656,31 @@ function initGraphView() {
   document.getElementById('rangeEnd').value   = '100'
   updateSliderUI()
 
-  // Build token chip list (unique mints from edges, sorted by total volume)
-  const mintVol = new Map()
-  for (const e of g.edges) mintVol.set(e.mint, (mintVol.get(e.mint) ?? 0) + e.amount)
-  const topMints = [...mintVol.entries()].sort((a,b) => b[1]-a[1]).slice(0, 10).map(([m]) => m)
+  // Build token chip list sorted by real USD volume
+  const mintUsd = new Map()
+  for (const e of g.edges) mintUsd.set(e.mint, (mintUsd.get(e.mint) ?? 0) + (e.usdScore ?? 0))
+  const topMints = [...mintUsd.entries()].sort((a,b) => b[1]-a[1]).slice(0, 10).map(([m]) => m)
+
+  const defaultActive = g.targetMint
+    ? new Set([g.targetMint])
+    : new Set(topMints)   // no target: show all (SOL is primary transfer medium)
 
   const chips = document.getElementById('tokenChips')
   chips.innerHTML = ''
   for (const mint of topMints) {
-    const sym = g.edges.find(e => e.mint === mint)?.symbol ?? mint.slice(0,6)
-    const chip = document.createElement('button')
-    chip.className = 'token-chip active'
+    const priceInfo = scanPrices.get(mint)
+    const sym       = priceInfo?.symbol ?? g.edges.find(e => e.mint === mint)?.symbol ?? mint.slice(0,6)
+    const priceTag  = priceInfo ? ` $${priceInfo.price < 0.001 ? priceInfo.price.toExponential(2) : fmtNum(priceInfo.price)}` : ''
+    const isActive  = defaultActive.has(mint)
+    const chip      = document.createElement('button')
+    chip.className    = `token-chip${isActive ? ' active' : ''}`
     chip.dataset.mint = mint
-    chip.textContent  = sym
+    chip.textContent  = sym + priceTag
+    chip.title        = mint
     chip.onclick = () => { chip.classList.toggle('active'); filterMints = new Set([...document.querySelectorAll('.token-chip.active')].map(c => c.dataset.mint)); renderGraph() }
     chips.appendChild(chip)
   }
-  filterMints = new Set(topMints)
+  filterMints = defaultActive
 
   document.getElementById('scanGraphArea').classList.add('visible')
   document.getElementById('scanSlider').classList.add('visible')
@@ -1439,11 +1725,23 @@ function getSliderRange() {
   }
 }
 
-// Filter edges by current slider range + selected token chips
+const _WSOL = 'So11111111111111111111111111111111111111112'
+
+// Approximate USD value of an edge amount — uses real DexScreener prices when available.
+function edgeUsdEstimate(mint, symbol, amount) {
+  if (mint === 'SOL' || mint === _WSOL) return amount * 150
+  if (['USDC','USDT','USDS'].includes(symbol)) return amount
+  const info = scanPrices.get(mint)
+  if (info) return amount * info.price
+  if (scanGraph?.targetMint && mint === scanGraph.targetMint) return amount * (tokenPrice || 0.001)
+  return 0
+}
+
+// Filter edges by time window + selected token chips + min USD value
 function getFilteredEdges() {
   if (!scanGraph) return []
   const { from, to } = getSliderRange()
-  // Re-aggregate edges from raw transfers within the time window
+  const minUsd = parseFloat(document.getElementById('scanMinUsd')?.value) || 0
   const edgeMap = new Map()
   for (const t of scanGraph.transfers) {
     if (t.timestamp < from || t.timestamp > to) continue
@@ -1451,15 +1749,17 @@ function getFilteredEdges() {
     const [a, b, sign] = t.from < t.to ? [t.from, t.to, 1] : [t.to, t.from, -1]
     const key = `${a}|${b}|${t.mint}`
     const ex  = edgeMap.get(key)
-    if (ex) { ex.flow += t.amount * sign; ex.txCount++ }
-    else edgeMap.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, txCount: 1 })
+    if (ex) { ex.flow += t.amount * sign; ex.usdFlow += edgeUsdEstimate(t.mint, t.symbol, t.amount); ex.txCount++ }
+    else edgeMap.set(key, { a, b, mint: t.mint, symbol: t.symbol, flow: t.amount * sign, usdFlow: edgeUsdEstimate(t.mint, t.symbol, t.amount), txCount: 1 })
   }
-  return [...edgeMap.values()].map(e => ({
-    source: e.flow >= 0 ? e.a : e.b,
-    target: e.flow >= 0 ? e.b : e.a,
-    mint: e.mint, symbol: e.symbol,
-    amount: Math.abs(e.flow), txCount: e.txCount,
-  })).filter(e => e.amount > 0)
+  return [...edgeMap.values()]
+    .filter(e => Math.abs(e.flow) > 0 && e.usdFlow >= minUsd)
+    .map(e => ({
+      source: e.flow >= 0 ? e.a : e.b,
+      target: e.flow >= 0 ? e.b : e.a,
+      mint: e.mint, symbol: e.symbol,
+      amount: Math.abs(e.flow), usdScore: e.usdFlow, txCount: e.txCount,
+    }))
 }
 
 // ── View toggle ───────────────────────────────────────────────────────────────
@@ -1473,8 +1773,8 @@ function setView(v) {
 }
 
 // ── D3 Force Graph ────────────────────────────────────────────────────────────
-const LAYER_COLORS = ['#F5A623', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
-const TOKEN_COLORS = { 'SOL': '#F5A623', 'USDC': '#6B9BFF', 'USDT': '#5DD49A' }
+const LAYER_COLORS = ['#C5FF4A', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
+const TOKEN_COLORS = { 'SOL': '#C5FF4A', 'USDC': '#6B9BFF', 'USDT': '#5DD49A' }
 
 function tokenColor(symbol) {
   return TOKEN_COLORS[symbol] ?? '#8C8C8A'
@@ -1569,7 +1869,7 @@ function renderGraph() {
   layerNames.forEach((name, i) => {
     const row = legend.append('g').attr('transform', `translate(0,${i * 18})`)
     row.append('circle').attr('r', 5).attr('cx', 5).attr('fill', LAYER_COLORS[Math.min(i, LAYER_COLORS.length-1)])
-    row.append('text').attr('x', 14).attr('y', 4).attr('fill', '#8C8C8A').attr('font-family', 'Geist Mono, monospace').attr('font-size', 10).text(name)
+    row.append('text').attr('x', 14).attr('y', 4).attr('fill', 'rgba(245,245,245,0.40)').attr('font-family', '"JetBrains Mono", monospace').attr('font-size', 10).text(name)
   })
 }
 

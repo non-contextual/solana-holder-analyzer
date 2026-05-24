@@ -4,8 +4,12 @@
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <title>Transfer Investigation</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet" />
+<style>
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 300 700; font-display: swap; src: url("/fonts/space-grotesk-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "Space Grotesk"; font-style: normal; font-weight: 300 700; font-display: swap; src: url("/fonts/space-grotesk-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 300 600; font-display: swap; src: url("/fonts/jetbrains-mono-latin.woff2") format("woff2"); unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD; }
+@font-face { font-family: "JetBrains Mono"; font-style: normal; font-weight: 300 600; font-display: swap; src: url("/fonts/jetbrains-mono-latin-ext.woff2") format("woff2"); unicode-range: U+0100-02AF, U+0304, U+0308, U+0329, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF; }
+</style>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -15,20 +19,48 @@
     *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; scroll-behavior: auto !important; }
   }
   /* Dark scrollbars matching the surface ramp (Firefox + WebKit). */
-  html { scrollbar-color: #2A2A2A #0A0A0A; scrollbar-width: thin; }
-  *::-webkit-scrollbar { width: 10px; height: 10px; }
-  *::-webkit-scrollbar-track { background: #0A0A0A; }
-  *::-webkit-scrollbar-thumb { background: #2A2A2A; border: 2px solid #0A0A0A; border-radius: 0; }
-  *::-webkit-scrollbar-thumb:hover { background: #3A3A3A; }
-  *::-webkit-scrollbar-corner { background: #0A0A0A; }
+  html { scrollbar-color: var(--hairline) var(--bg); scrollbar-width: thin; }
+  *::-webkit-scrollbar { width: 8px; height: 8px; }
+  *::-webkit-scrollbar-track { background: transparent; }
+  *::-webkit-scrollbar-thumb { background: var(--hairline); border-radius: 0; }
+  *::-webkit-scrollbar-thumb:hover { background: var(--hairline-2); }
+  *::-webkit-scrollbar-corner { background: var(--bg); }
   :root {
-    --bg: #0A0A0A; --surface: #161616; --surface-2: #1F1F1F;
-    --border: #2A2A2A; --border-2: #3A3A3A;
-    --text: #F2F2F0; --muted: #8C8C8A; --subtle: #5A5A58;
-    --accent: #F5A623; --mint: #5DD49A; --red: #E84B4B; --blue: #6B9BFF;
-    --font-mono: 'JetBrains Mono', monospace;
-    --font-body: 'Geist', sans-serif;
-    --font-data: 'Geist Mono', monospace;
+    /* Non Design System */
+    --bg:          #0A0A0A;
+    --panel:       #0F0F0F;
+    --panel-2:     #141414;
+    --panel-3:     #1A1A1A;
+    --ink:         #F5F5F5;
+    --ink-2:       rgba(245, 245, 245, 0.62);
+    --ink-3:       rgba(245, 245, 245, 0.40);
+    --ink-4:       rgba(245, 245, 245, 0.22);
+    --ink-5:       rgba(245, 245, 245, 0.10);
+    --hairline:    rgba(245, 245, 245, 0.14);
+    --hairline-2:  rgba(245, 245, 245, 0.08);
+    --grid:        rgba(245, 245, 245, 0.04);
+    --signal:      #C5FF4A;
+    --signal-dim:  rgba(197, 255, 74, 0.30);
+    --alert:       #FF5C5C;
+    --alert-dim:   rgba(255, 92, 92, 0.30);
+    --font-body:   "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+    --font-mono:   "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+    /* data colours — semantic chart encoding only */
+    --data-green:  #5DD49A;
+    --data-blue:   #6B9BFF;
+    /* backwards-compat aliases */
+    --surface:   var(--panel);
+    --surface-2: var(--panel-2);
+    --border:    var(--hairline);
+    --border-2:  var(--hairline-2);
+    --text:      var(--ink);
+    --muted:     var(--ink-2);
+    --subtle:    var(--ink-3);
+    --accent:    var(--signal);
+    --red:       var(--alert);
+    --mint:      var(--data-green);
+    --blue:      var(--data-blue);
+    --font-data: var(--font-mono);
   }
   html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-body); font-size: 14px; }
   .app { display: flex; flex-direction: column; height: 100vh; }
@@ -71,9 +103,9 @@
   .depth-group { display: flex; gap: 0; border: 1px solid var(--border); }
   .depth-btn { font-family: var(--font-mono); font-size: 11px; font-weight: 600; padding: 7px 14px; border: none; background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
   .depth-btn + .depth-btn { border-left: 1px solid var(--border); }
-  .depth-btn.active { background: var(--accent); color: #000; }
+  .depth-btn.active { background: var(--ink); color: var(--bg); }
 
-  button.btn-primary { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--accent); color: #000; border: none; padding: 9px 22px; cursor: pointer; border-radius: 0; }
+  button.btn-primary { font-family: var(--font-mono); font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; background: var(--ink); color: var(--bg); border: none; padding: 9px 22px; cursor: pointer; border-radius: 0; }
   button.btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
 
   /* Body */
@@ -96,10 +128,10 @@
   .controls { display: flex; align-items: center; gap: 10px; padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; flex-wrap: wrap; }
   .ctrl-label { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase; color: var(--subtle); }
   .token-chip { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 3px 9px; border: 1px solid var(--border); background: transparent; color: var(--muted); cursor: pointer; border-radius: 0; }
-  .token-chip.active { border-color: var(--accent); color: var(--accent); background: #F5A62310; }
+  .token-chip.active { border-color: var(--signal); color: var(--signal); background: transparent; }
   .view-toggle { display: flex; border: 1px solid var(--border); margin-left: auto; }
   .view-btn { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; padding: 5px 14px; border: none; background: transparent; color: var(--muted); cursor: pointer; }
-  .view-btn.active { background: var(--accent); color: #000; }
+  .view-btn.active { background: var(--ink); color: var(--bg); }
 
   /* Date slider */
   .slider-bar { padding: 10px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
@@ -147,7 +179,7 @@
   .suspect-card { background: var(--surface); border: 1px solid var(--border); margin-bottom: 8px; padding: 12px 16px; display: flex; gap: 16px; align-items: center; }
   .suspect-addr { font-family: var(--font-data); font-size: 12px; color: var(--text); flex: 0 0 auto; }
   .suspect-reason { font-family: var(--font-data); font-size: 11px; color: var(--muted); flex: 1; }
-  .suspect-score { font-family: var(--font-mono); font-size: 11px; color: var(--accent); border: 1px solid #F5A62340; background: #F5A62310; padding: 2px 8px; flex: 0 0 auto; }
+  .suspect-score { font-family: var(--font-mono); font-size: 11px; color: var(--signal); border: 1px solid var(--signal-dim); background: transparent; padding: 2px 8px; flex: 0 0 auto; }
   .suspect-metrics { font-family: var(--font-data); font-size: 11px; color: var(--muted); flex: 1; }
   .okx-dot { position: absolute; top: -2px; right: -2px; width: 6px; height: 6px; border-radius: 50%; background: var(--mint); border: 1px solid var(--bg); }
   .node-wrap { position: relative; display: inline-block; }
@@ -241,8 +273,8 @@
   .settings-recap.visible { display: flex; }
   .settings-recap:hover { background: var(--surface-2); }
   .recap-tag { font-family: var(--font-mono); font-size: 10px; font-weight: 600; letter-spacing: 0.1em;
-               text-transform: uppercase; color: var(--accent); padding: 2px 6px;
-               border: 1px solid var(--accent); background: #F5A62310; }
+               text-transform: uppercase; color: var(--signal); padding: 2px 6px;
+               border: 1px solid var(--signal-dim); background: transparent; }
   .recap-seed { color: var(--text); font-weight: 500; }
   .recap-sep  { color: var(--subtle); }
   .recap-edit { margin-left: auto; font-family: var(--font-mono); font-size: 10px;
@@ -337,7 +369,7 @@
         <div class="view-toggle">
           <button class="view-btn active" id="btnViewGraph"    onclick="setView('graph')">Graph</button>
           <button class="view-btn"        id="btnViewTable"    onclick="setView('table')">Net Flow</button>
-          <button class="view-btn"        id="btnViewSuspects" onclick="setView('suspects')" style="display:none">Suspects <span id="suspectsBadge" style="background:#F5A62330;color:var(--accent);padding:1px 5px;font-size:9px;margin-left:4px"></span></button>
+          <button class="view-btn"        id="btnViewSuspects" onclick="setView('suspects')" style="display:none">Suspects <span id="suspectsBadge" style="background:transparent;border:1px solid var(--signal-dim);color:var(--signal);padding:1px 5px;font-size:9px;margin-left:4px"></span></button>
         </div>
       </div>
 
@@ -406,22 +438,22 @@ let currentScanWallets = []   // seed wallets used for current scan (for save)
 const ENTITY_COLORS = {
   cex:        '#6B9BFF',   // blue — exchange
   bridge:     '#A78BFA',   // purple — cross-chain bridge
-  mixer:      '#E84B4B',   // red — mixer
-  sanctioned: '#E84B4B',   // red — sanctioned
-  protocol:   '#5DD49A',   // mint — known protocol
-  whale:      '#F5A623',   // amber — known whale
-  bot:        '#F59E0B',   // yellow — bot/automation
+  mixer:      '#FF5C5C',   // alert — mixer
+  sanctioned: '#FF5C5C',   // alert — sanctioned
+  protocol:   '#5DD49A',   // green — known protocol
+  whale:      '#C5FF4A',   // signal — known whale
+  bot:        '#C5FF4A',   // signal — bot/automation
 }
 
-function entityColor(type) { return ENTITY_COLORS[type] ?? '#8C8C8A' }
+function entityColor(type) { return ENTITY_COLORS[type] ?? 'rgba(245,245,245,0.40)' }
 function entityBadge(intel) {
   if (!intel) return ''
   const label = intel.staticLabel
   if (label) return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid;border-color:${entityColor(label.type)}40;color:${entityColor(label.type)};background:${entityColor(label.type)}18;margin-left:4px">${label.name}</span>`
   const tag = intel.behaviorTags[0]
-  if (tag === 'cex-like') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid #6B9BFF40;color:#6B9BFF;background:#6B9BFF18;margin-left:4px">CEX?</span>`
-  if (tag === 'mixer-like') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid #E84B4B40;color:#E84B4B;background:#E84B4B18;margin-left:4px">MIXER?</span>`
-  if (tag === 'high-fan-out') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid #F5A62340;color:#F5A623;background:#F5A62318;margin-left:4px">scatter</span>`
+  if (tag === 'cex-like') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid rgba(107,155,255,0.30);color:#6B9BFF;background:transparent;margin-left:4px">CEX?</span>`
+  if (tag === 'mixer-like') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid rgba(255,92,92,0.30);color:#FF5C5C;background:transparent;margin-left:4px">MIXER?</span>`
+  if (tag === 'high-fan-out') return `<span style="font-family:var(--font-mono);font-size:9px;padding:1px 5px;border:1px solid rgba(197,255,74,0.30);color:#C5FF4A;background:transparent;margin-left:4px">scatter</span>`
   return ''
 }
 
@@ -430,8 +462,8 @@ const _urlParams  = new URLSearchParams(window.location.search)
 const targetMint  = _urlParams.get('mint')  || null
 const targetPrice = parseFloat(_urlParams.get('price') || '0') || 0
 
-const LAYER_COLORS = ['#F5A623', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
-const TOKEN_COLORS = { SOL: '#F5A623', USDC: '#6B9BFF', USDT: '#5DD49A' }
+const LAYER_COLORS = ['#C5FF4A', '#6B9BFF', '#5DD49A', '#8C8C8A', '#5A5A58']
+const TOKEN_COLORS = { SOL: '#C5FF4A', USDC: '#6B9BFF', USDT: '#5DD49A' }
 
 // Init default dates: last 30 days
 ;(function() {
@@ -679,7 +711,7 @@ function expandSettings() {
 // we never feed thousands of nodes into the simulation — performance stays
 // good even on big scans.
 
-function tokenColor(sym) { return TOKEN_COLORS[sym] ?? '#8C8C8A' }
+function tokenColor(sym) { return TOKEN_COLORS[sym] ?? 'rgba(245,245,245,0.40)' }
 
 // Persistent position cache so re-renders (filter changes, scan reloads from
 // snapshot) don't reset the layout. New nodes get seeded near their layer's
@@ -695,7 +727,7 @@ function applyToggleStyle(btn, on) {
   if (!btn) return
   btn.style.color        = on ? 'var(--accent)' : 'var(--subtle)'
   btn.style.borderColor  = on ? 'var(--accent)' : 'var(--border)'
-  btn.style.background   = on ? '#F5A62318'     : 'transparent'
+  btn.style.background   = 'transparent'
 }
 
 function toggleExternal() {
@@ -758,15 +790,15 @@ function transfersBetween(a, b) {
 // on each chain row. Anything unrecognized falls through to the raw source
 // string so we never lose information.
 const TX_SOURCE_LABELS = {
-  SYSTEM_PROGRAM: { label: '原生转账', color: '#8C8C8A' },
-  SOLANA_PROGRAM_LIBRARY: { label: '代币转账', color: '#8C8C8A' },
-  JUPITER:    { label: 'Jupiter swap',    color: '#F5A623' },
+  SYSTEM_PROGRAM: { label: '原生转账', color: 'rgba(245,245,245,0.40)' },
+  SOLANA_PROGRAM_LIBRARY: { label: '代币转账', color: 'rgba(245,245,245,0.40)' },
+  JUPITER:    { label: 'Jupiter swap',    color: '#C5FF4A' },
   RAYDIUM:    { label: 'Raydium swap',    color: '#5DD49A' },
   ORCA:       { label: 'Orca swap',       color: '#5DD49A' },
   METEORA:    { label: 'Meteora swap',    color: '#5DD49A' },
   PHOENIX:    { label: 'Phoenix swap',    color: '#5DD49A' },
-  PUMP_FUN:   { label: 'pump.fun',        color: '#F5A623' },
-  PUMP_AMM:   { label: 'pump AMM',        color: '#F5A623' },
+  PUMP_FUN:   { label: 'pump.fun',        color: '#C5FF4A' },
+  PUMP_AMM:   { label: 'pump AMM',        color: '#C5FF4A' },
   MAGIC_EDEN: { label: 'NFT (Magic Eden)', color: '#A78BFA' },
   TENSOR:     { label: 'NFT (Tensor)',    color: '#A78BFA' },
   STAKE_PROGRAM: { label: '质押', color: '#6B9BFF' },
@@ -977,13 +1009,13 @@ function showNodeDetail(n, graphEdges) {
     // Whale banner comes from on-chain lamports balance (>=10k SOL). The
     // summary always starts with "链上余额 X SOL ·" so it's the most
     // actionable single line to surface above all other metadata.
-    entityBannerHtml = `<div style="background:#5DD49A18;border:1px solid #5DD49A50;padding:6px 10px;margin-bottom:10px"><span style="color:#5DD49A;font-family:var(--font-mono);font-size:11px;font-weight:700">🐋 巨鲸</span> <span style="color:var(--text);font-size:11px;margin-left:8px">${intel.summary}</span></div>`
+    entityBannerHtml = `<div style="background:transparent;border:1px solid rgba(93,212,154,0.30);padding:6px 10px;margin-bottom:10px"><span style="color:#5DD49A;font-family:var(--font-mono);font-size:11px;font-weight:700">▲ 巨鲸</span> <span style="color:var(--ink);font-size:11px;margin-left:8px">${intel.summary}</span></div>`
   } else if (intel?.behaviorTags.includes('cex-like')) {
-    entityBannerHtml = `<div style="background:#6B9BFF18;border:1px solid #6B9BFF40;padding:6px 10px;margin-bottom:10px"><span style="color:#6B9BFF;font-family:var(--font-mono);font-size:10px">⚠ Suspected CEX address — ${intel.summary}</span></div>`
+    entityBannerHtml = `<div style="background:transparent;border:1px solid rgba(107,155,255,0.30);padding:6px 10px;margin-bottom:10px"><span style="color:#6B9BFF;font-family:var(--font-mono);font-size:10px">⚠ Suspected CEX address — ${intel.summary}</span></div>`
   } else if (intel?.behaviorTags.includes('mixer-like')) {
-    entityBannerHtml = `<div style="background:#E84B4B18;border:1px solid #E84B4B40;padding:6px 10px;margin-bottom:10px"><span style="color:#E84B4B;font-family:var(--font-mono);font-size:10px">⚠ Mixer-like pattern — ${intel.summary}</span></div>`
+    entityBannerHtml = `<div style="background:transparent;border:1px solid rgba(255,92,92,0.30);padding:6px 10px;margin-bottom:10px"><span style="color:#FF5C5C;font-family:var(--font-mono);font-size:10px">⚠ Mixer-like pattern — ${intel.summary}</span></div>`
   } else if (intel?.behaviorTags.includes('high-fan-out')) {
-    entityBannerHtml = `<div style="background:#F5A62318;border:1px solid #F5A62340;padding:6px 10px;margin-bottom:10px"><span style="color:#F5A623;font-family:var(--font-mono);font-size:10px">↗ High scatter — ${intel.summary}</span></div>`
+    entityBannerHtml = `<div style="background:transparent;border:1px solid rgba(197,255,74,0.30);padding:6px 10px;margin-bottom:10px"><span style="color:#C5FF4A;font-family:var(--font-mono);font-size:10px">↗ High scatter — ${intel.summary}</span></div>`
   }
 
   // ── 与种子的资金关系 — top section, the analyst-first headline ────────────
@@ -1217,7 +1249,7 @@ function renderGraph() {
     const svg = d3.select('#mainSvg')
     svg.selectAll('*').remove()
     svg.append('text').attr('x', '50%').attr('y', '50%').attr('text-anchor', 'middle')
-      .attr('fill', '#5A5A58').attr('font-family', 'Geist Mono,monospace').attr('font-size', 13)
+      .attr('fill', 'rgba(245,245,245,0.40)').attr('font-family', '"JetBrains Mono",monospace').attr('font-size', 13)
       .text('当前筛选下没有可显示的转账')
     return
   }
@@ -1605,12 +1637,12 @@ function renderGraph() {
     return 'wallet'
   }
   function nodeFill(n) {
-    if (suspectsSet.has(n.address)) return '#E84B4B'
+    if (suspectsSet.has(n.address)) return '#FF5C5C'
     const kind = nodeKind(n)
     if (kind === 'pool')   return '#A78BFA'
     if (kind === 'cex')    return '#6B9BFF'
     if (kind === 'bridge') return '#6B9BFF'
-    if (kind === 'mixer')  return '#E84B4B'
+    if (kind === 'mixer')  return '#FF5C5C'
     return LAYER_COLORS[Math.min(n.layer >= 99 ? 4 : n.layer, LAYER_COLORS.length-1)]
   }
   function nodeStroke(n) {
@@ -1635,7 +1667,7 @@ function renderGraph() {
     // — the account in the transfer history no longer exists on chain.
     const strokeW = isClosed ? 2 : (n.isSeed || walletIntel.has(n.address) || okxDataMap.has(n.address) ? 2 : 0)
     const dash    = isClosed ? '4,3' : (walletIntel.has(n.address) && !n.isSeed ? '3,2' : 'none')
-    const strokeColor = isClosed ? '#E84B4B' : stroke
+    const strokeColor = isClosed ? '#FF5C5C' : stroke
     const opacity = isClosed ? 0.55 : (n.layer >= 99 ? 0.4 : 1)
 
     if (kind === 'pool' || kind === 'bridge') {
@@ -1686,7 +1718,7 @@ function renderGraph() {
   nodeEls.filter(shouldLabel).append('text')
     .attr('dy', n => (n.isSeed ? 14 : 9) + 11)
     .attr('text-anchor', 'middle').attr('fill', '#A8A8A6')
-    .attr('font-family', 'Geist Mono,monospace').attr('font-size', 10)
+    .attr('font-family', '"JetBrains Mono",monospace').attr('font-size', 10)
     .attr('font-weight', n => n.isSeed || walletIntel.get(n.address)?.staticLabel ? 600 : 400)
     .attr('pointer-events', 'none')
     .text(labelText)
@@ -1745,27 +1777,27 @@ function renderGraph() {
   for (const l of presentTracked) {
     const row = legend.append('g').attr('transform', `translate(0,${li*20})`)
     row.append('circle').attr('r', 5).attr('cx', 6).attr('fill', LAYER_COLORS[Math.min(l, LAYER_COLORS.length-1)])
-    row.append('text').attr('x', 16).attr('y', 4).attr('fill', '#8C8C8A')
-      .attr('font-family', 'Geist Mono,monospace').attr('font-size', 10).text(layerLabel(l))
+    row.append('text').attr('x', 16).attr('y', 4).attr('fill', 'rgba(245,245,245,0.40)')
+      .attr('font-family', '"JetBrains Mono",monospace').attr('font-size', 10).text(layerLabel(l))
     li++
   }
   if (hasExternal && showExternal) {
     const row = legend.append('g').attr('transform', `translate(0,${li*20})`)
     row.append('circle').attr('r', 4).attr('cx', 6).attr('fill', LAYER_COLORS[4]).attr('fill-opacity', 0.5)
-    row.append('text').attr('x', 16).attr('y', 4).attr('fill', '#8C8C8A')
-      .attr('font-family', 'Geist Mono,monospace').attr('font-size', 10).text('外部节点')
+    row.append('text').attr('x', 16).attr('y', 4).attr('fill', 'rgba(245,245,245,0.40)')
+      .attr('font-family', '"JetBrains Mono",monospace').attr('font-size', 10).text('外部节点')
     li++
   }
   // Shape legend: helps the user decode pool diamonds, CEX squares, etc.
   const shapeRows = []
   if ([...hotWallets].some(a => nodeByAddr.has(a))) shapeRows.push({ shape: 'diamond', color: '#A78BFA', label: '◆ 池子 / 高频' })
   if (allNodes.some(n => nodeKind(n) === 'cex'))   shapeRows.push({ shape: 'square',  color: '#6B9BFF', label: '■ CEX 交易所' })
-  if (allNodes.some(n => nodeKind(n) === 'mixer')) shapeRows.push({ shape: 'triangle', color: '#E84B4B', label: '▽ 混币器' })
+  if (allNodes.some(n => nodeKind(n) === 'mixer')) shapeRows.push({ shape: 'triangle', color: '#FF5C5C', label: '▽ 混币器' })
   for (const r of shapeRows) {
     const row = legend.append('g').attr('transform', `translate(0,${li*20})`)
     // Use a text glyph for the shape icon to keep this simple — actual nodes use SVG shapes.
     row.append('text').attr('x', 0).attr('y', 5).attr('fill', r.color)
-      .attr('font-family', 'Geist Mono,monospace').attr('font-size', 11).text(r.label)
+      .attr('font-family', '"JetBrains Mono",monospace').attr('font-size', 11).text(r.label)
     li++
   }
 
@@ -2053,9 +2085,9 @@ function renderTable() {
   const modeToggle = `<tr><th colspan="99" style="padding:6px 14px;border-bottom:1px solid var(--border);background:var(--surface)">
     <span style="font-family:var(--font-mono);font-size:10px;color:var(--muted);letter-spacing:0.08em;margin-right:8px">视图</span>
     <button class="net-flow-mode-btn ${!breakdownMode ? 'active' : ''}" onclick="window._netFlowMode='seed';renderTable()"
-      style="font-family:var(--font-mono);font-size:10px;padding:3px 10px;border:1px solid var(--border);background:${!breakdownMode ? '#F5A62318' : 'transparent'};color:${!breakdownMode ? 'var(--accent)' : 'var(--muted)'};border-color:${!breakdownMode ? 'var(--accent)' : 'var(--border)'};cursor:pointer;margin-right:4px">与种子的关系</button>
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 10px;border:1px solid var(--border);background:transparent;color:${!breakdownMode ? 'var(--signal)' : 'var(--ink-3)'};border-color:${!breakdownMode ? 'var(--signal)' : 'var(--border)'};cursor:pointer;margin-right:4px">与种子的关系</button>
     <button class="net-flow-mode-btn ${breakdownMode ? 'active' : ''}" onclick="window._netFlowMode='token';renderTable()"
-      style="font-family:var(--font-mono);font-size:10px;padding:3px 10px;border:1px solid var(--border);background:${breakdownMode ? '#F5A62318' : 'transparent'};color:${breakdownMode ? 'var(--accent)' : 'var(--muted)'};border-color:${breakdownMode ? 'var(--accent)' : 'var(--border)'};cursor:pointer">按代币拆</button>
+      style="font-family:var(--font-mono);font-size:10px;padding:3px 10px;border:1px solid var(--border);background:transparent;color:${breakdownMode ? 'var(--signal)' : 'var(--ink-3)'};border-color:${breakdownMode ? 'var(--signal)' : 'var(--border)'};cursor:pointer">按代币拆</button>
   </th></tr>`
 
   if (breakdownMode) {

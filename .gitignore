@@ -34,6 +34,3 @@ op-*/
 
 # Local utility scripts not part of the project
 scripts/
-
-# Binary font assets
-web/fonts/

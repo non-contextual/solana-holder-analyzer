@@ -28,3 +28,12 @@ Thumbs.db
 
 CLAUDE.md
 .claude/
+
+# Operation output — local analysis runs, raw snapshots, screenshots
+op-*/
+
+# Local utility scripts not part of the project
+scripts/
+
+# Binary font assets
+web/fonts/

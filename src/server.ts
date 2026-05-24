@@ -61,7 +61,7 @@ app.get('/api/analyze', async (c) => {
   const topN = parseInt(c.req.query('topN') ?? '20', 10)
 
   if (!mint) return c.json({ error: 'mint param required' }, 400)
-  if (isNaN(topN) || topN < 1 || topN > 200) return c.json({ error: 'topN must be 1-200' }, 400)
+  if (isNaN(topN) || topN < 1 || topN > 2000) return c.json({ error: 'topN must be 1-2000' }, 400)
 
   const { readable, writable } = new TransformStream<Uint8Array>()
   const writer  = writable.getWriter()

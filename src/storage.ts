@@ -91,8 +91,8 @@ export function listAllSnapshots(): SnapshotMeta[] {
   if (!existsSync(dir)) return []
 
   const all: SnapshotMeta[] = []
-  for (const mint of readdirSync(dir)) {
-    all.push(...listSnapshots(mint))
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.isDirectory()) all.push(...listSnapshots(entry.name))
   }
   return all.sort((a, b) => b.analyzedAt - a.analyzedAt)
 }
